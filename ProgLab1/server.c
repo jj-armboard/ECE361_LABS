@@ -6,28 +6,28 @@
 #include <netdb.h>
 #include <unistd.h>
 
-#define SERVERPORT "4950"
 #define MAX_BUFFER_SIZE 100
 
 int main(int argc, char *argv[]) {
    
    int sockfd = 0;
-   int bytes_sent = 0;
-   int len = 0; 
+   int numByteSent = 0;
+   int numByteReceived = 0;
 
-   char message[] = "John is gay";
+   char message[MAX_BUFFER_SIZE];
    char buffer[MAX_BUFFER_SIZE];
 
    struct addrinfo serverInfo, *serverInfoPtr;
 
-   struct sockaddr address;
+   // We use sockaddr_storage and typecast it to sockaddr when passing it to a function.
+   // You'd typically create a struct sockaddr_in or a struct sockaddr_in6 
+   // depending on what IP version you're using. In order to avoid trying to know what 
+   // IP version you will be using, you can use a struct sockaddr_storage which can hold either.
+   struct sockaddr_storage clientInfo;
 
-   struct sockaddr_storage senderInfo;
+   socklen_t addressLength = sizeof(clientInfo);
 
-   socklen_t addressLength = sizeof(senderInfo);
-
-   len = strlen(message);
-
+   // Initialize serverInfo
    serverInfo.ai_flags = AI_PASSIVE;
    serverInfo.ai_family = AF_INET;
    serverInfo.ai_socktype = SOCK_DGRAM;
@@ -38,28 +38,35 @@ int main(int argc, char *argv[]) {
    serverInfo.ai_canonname = NULL;
    serverInfo.ai_next = NULL;
 
-   address.sa_family = htonl(INADDR_ANY);
-   strcpy(address.sa_data, SERVERPORT);
+   // Resolves a hostname into an address
+   getaddrinfo(NULL, argv[1], &serverInfo, &serverInfoPtr);
 
-   getaddrinfo(NULL, SERVERPORT, &serverInfo, &serverInfoPtr);
+   // Create a socket
+   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
-   // socket(AF_INET, SOCK_DGRAM, 0) will also work
-   sockfd = socket(serverInfoPtr->ai_family, serverInfoPtr->ai_socktype, serverInfoPtr->ai_protocol);
-   printf("sockfd = %d\n", sockfd);
+   // Bind it to the port we passed in to getaddrinfo()
+   bind(sockfd, serverInfoPtr->ai_addr, sizeof(*(serverInfoPtr->ai_addr)));
 
-   // bind it to the port we passed in to getaddrinfo():
-   //bind(sockfd, &address, sizeof(address));
-   bind(sockfd, serverInfoPtr->ai_addr, sizeof(address));
+   printf("Server Listening On Port: %s\n", argv[1]);
 
-   recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&senderInfo, &addressLength);
+   // Receives a message from the client
+   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&clientInfo, &addressLength);
+  
+   buffer[numByteReceived] = '\0';
+   printf("Server Received: \"%s\"\n", buffer);
 
-   bytes_sent = sendto(sockfd, message, len, 0, (struct sockaddr *)&senderInfo, serverInfoPtr->ai_addrlen);
-   printf("bytes_sent = %d\n", bytes_sent);
+   if (strcmp(buffer, "ftp") == 0) {
 
-   //printf("IP of sender = %s\n", ((struct sockaddr *)&senderInfo)->sa_data);
+      strcpy(message, "yes");
+   }
+   else {
 
-   //bytes_sent = sendto(sockfd, message, len, 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
-   //printf("bytes_sent = %d\n", bytes_sent);
+      strcpy(message, "no");
+   }
+
+   // Sends a message to the client
+   numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
+   printf("Server Sent: \"%s\"\n", message);
 
    close(sockfd);
 

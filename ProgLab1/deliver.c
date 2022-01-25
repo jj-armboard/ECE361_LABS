@@ -1,76 +1,88 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <netdb.h>
+#include <unistd.h>
 
-#define SERVERPORT "4950" // the port users will be connecting to
 #define MAX_BUFFER_SIZE 100
 
 int main(int argc, char *argv[]) {
    
-   int sockfd;
-   struct addrinfo hints, *servinfo, *p;
-   struct sockaddr_storage senderInfo;
-   int rv;
-   int numbytes;
+   int sockfd = 0;
+   int numByteSent = 0;
+   int numByteReceived = 0;
 
    char buffer[MAX_BUFFER_SIZE];
+   char message[MAX_BUFFER_SIZE];
 
-   socklen_t addressLength = sizeof(senderInfo);
+   char commandString[100];
+   char filePathName[100];
 
-   if (argc != 3) {
-      fprintf(stderr,"usage: talker hostname message\n");
-      exit(1);
+   struct addrinfo serverInfo, *serverInfoPtr;
+
+   // We use sockaddr_storage and typecast it to sockaddr when passing it to a function.
+   // You'd typically create a struct sockaddr_in or a struct sockaddr_in6 
+   // depending on what IP version you're using. In order to avoid trying to know what 
+   // IP version you will be using, you can use a struct sockaddr_storage which can hold either.
+   struct sockaddr_storage clientInfo;
+
+   socklen_t addressLength = sizeof(clientInfo);
+
+   // Initialize serverInfo
+   serverInfo.ai_flags = AI_PASSIVE;
+   serverInfo.ai_family = AF_INET;
+   serverInfo.ai_socktype = SOCK_DGRAM;
+
+   serverInfo.ai_protocol = 0;
+   serverInfo.ai_addrlen = 0;
+   serverInfo.ai_addr = NULL;
+   serverInfo.ai_canonname = NULL;
+   serverInfo.ai_next = NULL;
+
+   // Resolves a hostname into an address
+   getaddrinfo(argv[1], argv[2], &serverInfo, &serverInfoPtr);
+
+   // Create a socket
+   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+   // Bind it to the port we passed in to getaddrinfo()
+   bind(sockfd, serverInfoPtr->ai_addr, sizeof(*(serverInfoPtr->ai_addr)));
+
+   printf("Please Input: ftp <file name>\n");
+   scanf("%s %[^\n]", commandString, filePathName);
+
+   if (access(filePathName, F_OK) == 0) {
+
+      printf("File Exists: Sending \"%s\" To Server\n", commandString);
    }
+   else {
 
-   memset(&hints, 0, sizeof hints);
-   hints.ai_family = AF_INET; // set to AF_INET to use IPv4
-   hints.ai_socktype = SOCK_DGRAM;
-
-   if ((rv = getaddrinfo(argv[1], SERVERPORT, &hints, &servinfo)) != 0) {
-      fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-      return 1;
+      printf("File Does Not Exist: Exiting Program\n");
+      return 0;
    }
+   
+   // Sends a message to the server
+   numByteSent = sendto(sockfd, commandString, strlen(commandString), 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
+   printf("Client Sent: \"%s\"\n", commandString);
 
-   // loop through all the results and make a socket
-   for(p = servinfo; p != NULL; p = p->ai_next) {
-      if ((sockfd = socket(p->ai_family, p->ai_socktype,
-      p->ai_protocol)) == -1) {
-         perror("talker: socket");
-         continue;
-      }
-
-      break;
-   }
-
-   if (p == NULL) {
-      fprintf(stderr, "talker: failed to create socket\n");
-      return 2;
-   }
-
-   if ((numbytes = sendto(sockfd, argv[2], strlen(argv[2]), 0,
-   p->ai_addr, p->ai_addrlen)) == -1) {
-      perror("talker: sendto");
-      exit(1);
-   }
-
-   freeaddrinfo(servinfo);
-
-   printf("talker: sent %d bytes to %s\n", numbytes, argv[1]);
-
-   numbytes = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&senderInfo, &addressLength);
+   // Receives a message from the server
+   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&clientInfo, &addressLength);
   
-   printf("listener: packet is %d bytes long\n", numbytes);
-   buffer[numbytes] = '\0';
-   printf("listener: packet contains \"%s\"\n", buffer);
+   buffer[numByteReceived] = '\0';
+   printf("Client Received: \"%s\"\n", buffer);
+
+   if (strcmp(buffer, "yes") == 0) {
+
+      printf("A file transfer can start.\n");
+   }
+   else if (strcmp(buffer, "no") == 0) {
+
+      printf("Server Returned \"no\": Exiting Program\n");
+   }
+
    close(sockfd);
 
    return 0;
-   
 }
