@@ -26,9 +26,9 @@ int main(int argc, char *argv[]) {
    // You'd typically create a struct sockaddr_in or a struct sockaddr_in6 
    // depending on what IP version you're using. In order to avoid trying to know what 
    // IP version you will be using, you can use a struct sockaddr_storage which can hold either.
-   struct sockaddr_storage clientInfo;
+   struct sockaddr_storage senderInfo;
 
-   socklen_t addressLength = sizeof(clientInfo);
+   socklen_t addressLength = sizeof(senderInfo);
 
    // Initialize serverInfo
    serverInfo.ai_flags = AI_PASSIVE;
@@ -68,7 +68,7 @@ int main(int argc, char *argv[]) {
    printf("Client Sent: \"%s\"\n", commandString);
 
    // Receives a message from the server
-   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&clientInfo, &addressLength);
+   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&senderInfo, &addressLength);
   
    buffer[numByteReceived] = '\0';
    printf("Client Received: \"%s\"\n", buffer);
