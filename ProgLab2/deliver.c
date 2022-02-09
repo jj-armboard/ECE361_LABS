@@ -28,6 +28,7 @@ int main(int argc, char *argv[]) {
 
    char commandString[100];
    char filePathName[100];
+   char* fileName;
 
    FILE* transferFile;
    int fileSize = 0;
@@ -98,6 +99,33 @@ int main(int argc, char *argv[]) {
    }
 
    //////////////////// Section 2 ////////////////////
+   //use fseek to basically point to the appropriate position (1000th byte?) then put all of that data into the 
+   //packet. 
+   //We then start the byte stream at ftell and continue on until the next 1000bytes up to the end.
+   //First get number of packets 
+   //FILE * fp;
+   //fseek(fp,0,SEEK_END);
+   //num_packets = ftell(fp)/1000 + 1;
+   //fseek(fp,0,SEEK_SET);
+   /*for(int packets = 0;packets < num_packets;i++){
+    * //code to update the header of the packet here...
+    * int i = packet*1000
+    * fileSize = i+1000
+    * 
+    * 
+    * if(packets == num_packets-1){
+    *  fseek(fp, 0, SEEK_END);
+       fileSize = ftell(fp);//characters are always 1 byte there fore no need to do math? 
+    *  fseek(fp, 0, SEEK_SET);
+    * }
+    *   for (i; i < fileSize; i++) {
+
+      filePacket.filedata[i] = fgetc(transferFile);
+        }
+    * 
+    * 
+    * }
+    */
 
    transferFile = fopen(filePathName, "rb");
 
@@ -110,26 +138,40 @@ int main(int argc, char *argv[]) {
 
       printf("File successfully opened!\n");
    }
-
+   FILE * fp;
+   fp = transferFile;
    fseek(transferFile, 0, SEEK_END);
    fileSize = ftell(transferFile);
-
+   int num_packets = ftell(transferFile)/1000 + 1;
    fseek(transferFile, 0, SEEK_SET);
-
+   
+   for(int packets =0; packets < num_packets;packets++){
    printf("Size of the file = %d bytes\n", fileSize);
-
-   filePacket.total_frag = 1;
-   filePacket.frag_no = 1;
+   int i = packets*1000;
+   int filePtr = i+1000;
+   fseek(transferFile,filePtr,SEEK_SET);
+   fileSize = 1000;
+   filePacket.total_frag = num_packets;
+   filePacket.frag_no = packets;
+    if(packets == num_packets-1){
+      fseek(fp, 0, SEEK_END);
+       filePtr = ftell(fp);//characters are always 1 byte there fore no need to do math? 
+       fileSize = filePtr % 1000;
+      fseek(fp, 0, SEEK_SET);
+     }
    filePacket.size = fileSize;
    
-   filePacket.filename = (char *)malloc(strlen(filePathName));
-   strcpy(filePacket.filename, filePathName);
+   fileName = strrchr(filePathName, '/');
+   fileName = strrchr(filePathName, fileName[1]);
 
-   for (int i = 0; i < fileSize; i++) {
+   filePacket.filename = (char *)malloc(strlen(fileName)*sizeof(char));
+   strcpy(filePacket.filename, fileName);
 
-      filePacket.filedata[i] = fgetc(transferFile);
-   }
-
+   printf("\nfileName = %s\n\n", fileName);
+   
+   
+   fread(filePacket.filedata, sizeof(char), 1000, transferFile);
+   
    char temp[20];
    char headerBuilder[200];
 
@@ -160,7 +202,7 @@ int main(int argc, char *argv[]) {
    headerBuilder[charCount] = ':';
    headerBuilder[charCount + 1] = '\0';
 
-   strcat(headerBuilder, filePathName);
+   strcat(headerBuilder, filePacket.filename);
 
    charCount = strlen(headerBuilder);
 
@@ -186,7 +228,9 @@ int main(int argc, char *argv[]) {
 
    numByteSent = sendto(sockfd, formattedPacket, formattedPacketSize, 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
    printf("Client Sent Packet\n");
-
+   
+   printf("Client Sent Packet %d \n",filePacket.frag_no);
+   }
    fclose(transferFile);
    close(sockfd);
 

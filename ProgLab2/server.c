@@ -14,7 +14,7 @@ struct packet {
    unsigned int frag_no;
    unsigned int size;
    char* filename;
-   char packetData[1000];
+   char filedata[1000];
 };
 
 int main(int argc, char *argv[]) {
@@ -76,9 +76,22 @@ int main(int argc, char *argv[]) {
    // Sends a message to the client
    numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
    printf("Server Sent: \"%s\"\n", message);
-
-   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&clientInfo, &addressLength);
+   /*while(1){
     
+    * 
+    * 
+    * 
+    * 
+    * 
+    * process fragments
+    * if(frag_no == total_frag){
+    * break;
+    * }
+   
+   }*/
+   while(1){
+   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&clientInfo, &addressLength);
+   
 	buffer[numByteReceived] = '\0';
 	printf("%s\n", buffer);
 
@@ -87,6 +100,7 @@ int main(int argc, char *argv[]) {
 	char temp[200];
 
 	int charCount = 0;
+	int fileNameSize = 0;
 
 	for (int i = 0; ; i++) {
 
@@ -104,7 +118,90 @@ int main(int argc, char *argv[]) {
 
 	printf("filePacket.total_frag = %d\n", filePacket.total_frag);
 
+	charCount = strlen(temp) + 1;
+
+	for (int i = 0; ; i++) {
+
+		if (buffer[i + charCount] == ':') {
+			
+			temp[i] == '\0';
+
+			break;
+		}
+
+		temp[i] = buffer[i + charCount];
+	}
+
+	filePacket.frag_no = atoi(temp);
+
+	printf("filePacket.frag_no = %d\n", filePacket.frag_no);
+        
+	charCount = charCount + strlen(temp) + 1;
+
+	for (int i = 0; ; i++) {
+
+		if (buffer[i + charCount] == ':') {
+			
+			temp[i] == '\0';
+
+			break;
+		}
+
+		temp[i] = buffer[i + charCount];
+	}
+
+	filePacket.size = atoi(temp);
+
+	printf("filePacket.size = %d\n", filePacket.size);
+
+	charCount = charCount + strlen(temp) + 1;
+
+	for (int i = 0; ; i++) {
+
+		fileNameSize += 1;
+
+		if (buffer[i + charCount] == ':') {
+			
+			temp[i] == '\0';
+
+			break;
+		}
+
+		temp[i] = buffer[i + charCount];
+	}
+
+	filePacket.filename = (char *)malloc(fileNameSize*sizeof(char));
+
+	strcpy(filePacket.filename, temp);
+
+	printf("filePacket.filename = %s\n", filePacket.filename);
+
+	charCount = charCount + strlen(filePacket.filename) + 1;
+
+	for (int i = 0; i < filePacket.size; i++) {
+
+		filePacket.filedata[i] = buffer[i + charCount];
+	}
+
+	filePacket.filedata[filePacket.size] = '\0';
+
+	//strcat(filePacket.filedata, " IT FUCKING ARIRRIVED!!!");
+
+	
+
+	FILE* transferFile = fopen(filePacket.filename, "w");
+
+	fwrite(filePacket.filedata, 1, 1000, transferFile);
+
+	fclose(transferFile);
+        if(filePacket.frag_no == filePacket.total_frag){
+            break;
+        }
+   }
    close(sockfd);
+   
+   
+   
 
    return 0;
 }
