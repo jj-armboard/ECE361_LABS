@@ -8,12 +8,13 @@
 
 #define MAX_BUFFER_SIZE 100
 
-struct packet {  
-uint32_t total_frag;  
-unsigned int frag_no; 
-unsigned int size; 
-char* filename; 
-char filedata[1000];  
+struct packet {
+   
+   unsigned int total_frag;
+   unsigned int frag_no;
+   unsigned int size;
+   char* filename;
+   char filedata[1000];
 };
 
 int main(int argc, char *argv[]) {
@@ -22,11 +23,17 @@ int main(int argc, char *argv[]) {
    int numByteSent = 0;
    int numByteReceived = 0;
 
-   //char buffer[MAX_BUFFER_SIZE];
+   char buffer[MAX_BUFFER_SIZE];
    char message[MAX_BUFFER_SIZE];
 
    char commandString[100];
    char filePathName[100];
+
+   FILE* transferFile;
+   int fileSize = 0;
+   char* formattedPacket;
+   
+   struct packet filePacket;
 
    struct addrinfo serverInfo, *serverInfoPtr;
 
@@ -60,55 +67,127 @@ int main(int argc, char *argv[]) {
 
    printf("Please Input: ftp <file name>\n");
    scanf("%s %[^\n]", commandString, filePathName);
-   
-//   if (access(filePathName, F_OK) == 0) {
 
-//      printf("File Exists: Sending \"%s\" To Server\n", commandString);
-//   }
-//   else {
+   if (access(filePathName, F_OK) == 0) {
 
-//      printf("File Does Not Exist: Exiting Program\n");
-//      return 0;
-//   }
-   struct packet pack;
-   pack.total_frag = 1;
-   pack.frag_no = 1;
-   pack.size = 3123;
-   //strcpy(pack.filename,&commandString);
-   
-   //code to serialize the packets
-   
-   //basic code to serialize an integer
-   int serialized_total_frag = htonl(pack.total_frag);
-   int serialized_frag_no = htonl(pack.frag_no)
-   
-   //basic code to copy to a buffer
-   
-   unsigned char * buffer = malloc(1*sizeof(struct packet));
-   memcpy(buffer,&serialized_total_frag,sizeof(int));
-   
-   //char buffer[1024];
-   
+      printf("File Exists: Sending \"%s\" To Server\n", commandString);
+   }
+   else {
+
+      printf("File Does Not Exist: Exiting Program\n");
+      return 0;
+   }
    
    // Sends a message to the server
-   numByteSent = sendto(sockfd, buffer, sizeof(buffer), 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
-   printf("Client Sent: \"%d\"\n", &total_frag);
-   free(buffer);
+   numByteSent = sendto(sockfd, commandString, strlen(commandString), 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
+   printf("Client Sent: \"%s\"\n", commandString);
+
    // Receives a message from the server
-   //numByteReceived = recvfrom(sockfd, buffer,  - 1, 0, (struct sockaddr *)&senderInfo, &addressLength);
+   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&senderInfo, &addressLength);
   
-   //buffer[numByteReceived] = '\0';
-   //printf("Client Received: \"%s\"\n", buffer);
+   buffer[numByteReceived] = '\0';
+   printf("Client Received: \"%s\"\n", buffer);
 
-   //if (strcmp(buffer, "yes") == 0) {
+   if (strcmp(buffer, "yes") == 0) {
 
-//      printf("A file transfer can start.\n");
-  // }
-   //else if (strcmp(buffer, "no") == 0) {
+      printf("A file transfer can start.\n");
+   }
+   else if (strcmp(buffer, "no") == 0) {
 
-     // printf("Server Returned \"no\": Exiting Program\n");
-   //}
+      printf("Server Returned \"no\": Exiting Program\n");
+   }
 
+   //////////////////// Section 2 ////////////////////
+
+   transferFile = fopen(filePathName, "rb");
+
+   if (transferFile == NULL) {
+
+      printf("File failed to open!\n");
+      return 0;
+   }
+   else {
+
+      printf("File successfully opened!\n");
+   }
+
+   fseek(transferFile, 0, SEEK_END);
+   fileSize = ftell(transferFile);
+
+   fseek(transferFile, 0, SEEK_SET);
+
+   printf("Size of the file = %d bytes\n", fileSize);
+
+   filePacket.total_frag = 1;
+   filePacket.frag_no = 1;
+   filePacket.size = fileSize;
+   
+   filePacket.filename = (char *)malloc(strlen(filePathName));
+   strcpy(filePacket.filename, filePathName);
+
+   for (int i = 0; i < fileSize; i++) {
+
+      filePacket.filedata[i] = fgetc(transferFile);
+   }
+
+   char temp[20];
+   char headerBuilder[200];
+
+   int charCount = 0;
+   int formattedPacketSize = 0;
+
+   sprintf(temp, "%d", filePacket.total_frag);
+   strcpy(headerBuilder, temp);
+
+   charCount = strlen(headerBuilder);
+
+   headerBuilder[charCount] = ':';
+   headerBuilder[charCount + 1] = '\0';
+
+   sprintf(temp, "%d", filePacket.frag_no);
+   strcat(headerBuilder, temp);
+
+   charCount = strlen(headerBuilder);
+
+   headerBuilder[charCount] = ':';
+   headerBuilder[charCount + 1] = '\0';
+
+   sprintf(temp, "%d", filePacket.size);
+   strcat(headerBuilder, temp);
+
+   charCount = strlen(headerBuilder);
+
+   headerBuilder[charCount] = ':';
+   headerBuilder[charCount + 1] = '\0';
+
+   strcat(headerBuilder, filePathName);
+
+   charCount = strlen(headerBuilder);
+
+   headerBuilder[charCount] = ':';
+   headerBuilder[charCount + 1] = '\0';
+
+   charCount += 1;
+
+   formattedPacket = (char *)malloc(charCount + fileSize);
+
+   strcpy(formattedPacket, headerBuilder);
+   
+   for (int i = 0; i < fileSize; i++) {
+
+      formattedPacket[i + charCount] = filePacket.filedata[i];
+   }
+
+   formattedPacketSize = charCount + fileSize - 1;
+
+   formattedPacket[formattedPacketSize] = '\0'; 
+   printf("filePathName size = %d\n", strlen(filePathName));
+   printf("%s\n", formattedPacket);
+
+   numByteSent = sendto(sockfd, formattedPacket, formattedPacketSize, 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
+   printf("Client Sent Packet\n");
+
+   fclose(transferFile);
    close(sockfd);
 
    return 0;

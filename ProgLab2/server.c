@@ -6,7 +6,16 @@
 #include <netdb.h>
 #include <unistd.h>
 
-#define MAX_BUFFER_SIZE 100
+#define MAX_BUFFER_SIZE 1200
+
+struct packet {
+   
+   unsigned int total_frag;
+   unsigned int frag_no;
+   unsigned int size;
+   char* filename;
+   char packetData[1000];
+};
 
 int main(int argc, char *argv[]) {
    
@@ -15,7 +24,7 @@ int main(int argc, char *argv[]) {
    int numByteReceived = 0;
 
    char message[MAX_BUFFER_SIZE];
-   //char buffer[MAX_BUFFER_SIZE];
+   char buffer[MAX_BUFFER_SIZE];
 
    struct addrinfo serverInfo, *serverInfoPtr;
 
@@ -48,26 +57,52 @@ int main(int argc, char *argv[]) {
    bind(sockfd, serverInfoPtr->ai_addr, sizeof(*(serverInfoPtr->ai_addr)));
 
    printf("Server Listening On Port: %s\n", argv[1]);
-   int buf = 0;   // Receives a message from the client
-   numByteReceived = recvfrom(sockfd, &buf, sizeof(buf), 0, (struct sockaddr *)&clientInfo, &addressLength);
-   uint32_t total_frag = ntohl(buf);
-   
-   //free(buffer);
-   //buffer[numByteReceived] = '\0';
-   printf("Server Received: \"%d\"\n", ntohl(buf));
 
-   //if (strcmp(buffer, "ftp") == 0) {
+   // Receives a message from the client
+   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&clientInfo, &addressLength);
+  
+   buffer[numByteReceived] = '\0';
+   printf("Server Received: \"%s\"\n", buffer);
 
-     // strcpy(message, "yes");
-   //}
-   //else {
+   if (strcmp(buffer, "ftp") == 0) {
 
-     // strcpy(message, "no");
-   //}
+      strcpy(message, "yes");
+   }
+   else {
+
+      strcpy(message, "no");
+   }
 
    // Sends a message to the client
-   //numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
-   //printf("Server Sent: \"%s\"\n", message);
+   numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
+   printf("Server Sent: \"%s\"\n", message);
+
+   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&clientInfo, &addressLength);
+    
+	buffer[numByteReceived] = '\0';
+	printf("%s\n", buffer);
+
+	struct packet filePacket;
+
+	char temp[200];
+
+	int charCount = 0;
+
+	for (int i = 0; ; i++) {
+
+		if (buffer[i] == ':') {
+			
+			temp[i] == '\0';
+
+			break;
+		}
+
+		temp[i] = buffer[i];
+	}
+
+	filePacket.total_frag = atoi(temp);
+
+	printf("filePacket.total_frag = %d\n", filePacket.total_frag);
 
    close(sockfd);
 
