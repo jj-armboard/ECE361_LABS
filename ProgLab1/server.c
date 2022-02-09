@@ -6,7 +6,16 @@
 #include <netdb.h>
 #include <unistd.h>
 
-#define MAX_BUFFER_SIZE 100
+#define MAX_BUFFER_SIZE 1200
+
+struct packet {
+   
+   unsigned int total_frag;
+   unsigned int frag_no;
+   unsigned int size;
+   char* filename;
+   char filedata[1000];
+};
 
 int main(int argc, char *argv[]) {
    
@@ -68,7 +77,133 @@ int main(int argc, char *argv[]) {
    numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
    printf("Server Sent: \"%s\"\n", message);
 
-   close(sockfd);
+   numByteReceived = recvfrom(sockfd, buffer, 1200, 0, (struct sockaddr *)&clientInfo, &addressLength);
+    
+	buffer[numByteReceived] = '\0';
+	printf("%s\n", buffer);
 
-   return 0;
+	struct packet filePacket;
+
+	char temp[200];
+
+	int charCount = 0;
+	int fileNameSize = 0;
+
+	for (int i = 0; ; i++) {
+
+		if (buffer[i] == ':') {
+			
+			temp[i] == '\0';
+
+			break;
+		}
+
+		temp[i] = buffer[i];
+	}
+
+	filePacket.total_frag = atoi(temp);
+
+	printf("filePacket.total_frag = %d\n", filePacket.total_frag);
+
+	charCount = strlen(temp) + 1;
+
+	printf("charCount = %d\n", charCount);
+
+	for(int i = 0; i < 200; i++) {
+
+		temp[i] = 0;
+	}
+
+	for (int i = 0; ; i++) {
+
+		if (buffer[i + charCount] == ':') {
+			
+			temp[i] == '\0';
+
+			break;
+		}
+
+		temp[i] = buffer[i + charCount];
+	}
+
+	filePacket.frag_no = atoi(temp);
+
+	printf("filePacket.frag_no = %d\n", filePacket.frag_no);
+
+	charCount = charCount + strlen(temp) + 1;
+
+	printf("charCount = %d\n", charCount);
+
+	for (int i = 0; ; i++) {
+
+		if (buffer[i + charCount] == ':') {
+			
+			temp[i] == '\0';
+
+			break;
+		}
+
+		temp[i] = buffer[i + charCount];
+	}
+
+	filePacket.size = atoi(temp);
+
+	printf("filePacket.size = %d\n", filePacket.size);
+
+	charCount = charCount + strlen(temp) + 1;
+
+	printf("charCount = %d\n", charCount);
+
+	for (int i = 0; ; i++) {
+
+		fileNameSize += 1;
+
+		if (buffer[i + charCount] == ':') {
+			
+			temp[i] == '\0';
+
+			break;
+		}
+
+		temp[i] = buffer[i + charCount];
+	}
+
+	filePacket.filename = (char *)malloc(fileNameSize * sizeof(char *));
+
+	strcpy(filePacket.filename, temp);
+
+	printf("filePacket.filename = %s\n", filePacket.filename);
+
+	charCount = charCount + strlen(filePacket.filename) + 1;
+
+	printf("charCount = %d\n", charCount);
+
+	char* fileBuffer;
+
+	fileBuffer = (char *)malloc(filePacket.size * sizeof(char *));
+	
+	for (int k = 0; k < filePacket.total_frag; k++) {
+		
+		for (int i = 0; i < numByteReceived; i++) {
+
+			filePacket.filedata[i] = buffer[i + charCount];
+
+			fileBuffer[(k * 1000) + i] = buffer[i + charCount];
+		}
+
+		numByteReceived = recvfrom(sockfd, buffer, 1200, 0, (struct sockaddr *)&clientInfo, &addressLength);
+	}
+
+	printf("TEST 1\n");
+
+	FILE* transferFile = fopen(filePacket.filename, "w");
+
+	printf("TEST 2\n");
+
+	fwrite(fileBuffer, 1, filePacket.size, transferFile);
+
+	fclose(transferFile);
+    close(sockfd);
+
+	return 0;
 }

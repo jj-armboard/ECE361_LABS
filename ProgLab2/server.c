@@ -76,24 +76,11 @@ int main(int argc, char *argv[]) {
    // Sends a message to the client
    numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
    printf("Server Sent: \"%s\"\n", message);
-   /*while(1){
+
+   numByteReceived = recvfrom(sockfd, buffer, 1200, 0, (struct sockaddr *)&clientInfo, &addressLength);
     
-    * 
-    * 
-    * 
-    * 
-    * 
-    * process fragments
-    * if(frag_no == total_frag){
-    * break;
-    * }
-   
-   }*/
-   while(1){
-   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&clientInfo, &addressLength);
-   
-	buffer[numByteReceived] = '\0';
-	printf("%s\n", buffer);
+	//buffer[numByteReceived] = '\0';
+	//printf("%s\n", buffer);
 
 	struct packet filePacket;
 
@@ -120,6 +107,13 @@ int main(int argc, char *argv[]) {
 
 	charCount = strlen(temp) + 1;
 
+	
+
+	for(int i = 0; i < 200; i++) {
+
+		temp[i] = 0;
+	}
+
 	for (int i = 0; ; i++) {
 
 		if (buffer[i + charCount] == ':') {
@@ -135,8 +129,10 @@ int main(int argc, char *argv[]) {
 	filePacket.frag_no = atoi(temp);
 
 	printf("filePacket.frag_no = %d\n", filePacket.frag_no);
-        
+
 	charCount = charCount + strlen(temp) + 1;
+
+	
 
 	for (int i = 0; ; i++) {
 
@@ -156,6 +152,8 @@ int main(int argc, char *argv[]) {
 
 	charCount = charCount + strlen(temp) + 1;
 
+	
+
 	for (int i = 0; ; i++) {
 
 		fileNameSize += 1;
@@ -170,7 +168,7 @@ int main(int argc, char *argv[]) {
 		temp[i] = buffer[i + charCount];
 	}
 
-	filePacket.filename = (char *)malloc(fileNameSize*sizeof(char));
+	filePacket.filename = (char *)malloc(fileNameSize * sizeof(char *));
 
 	strcpy(filePacket.filename, temp);
 
@@ -178,30 +176,30 @@ int main(int argc, char *argv[]) {
 
 	charCount = charCount + strlen(filePacket.filename) + 1;
 
-	for (int i = 0; i < filePacket.size; i++) {
-
-		filePacket.filedata[i] = buffer[i + charCount];
-	}
-
-	filePacket.filedata[filePacket.size] = '\0';
-
-	//strcat(filePacket.filedata, " IT FUCKING ARIRRIVED!!!");
-
 	
+
+	char* fileBuffer;
+
+	fileBuffer = (char *)malloc(filePacket.size * sizeof(char *));
+	
+	for (int k = 0; k < filePacket.total_frag; k++) {
+		
+		for (int i = 0; i < numByteReceived; i++) {
+
+			filePacket.filedata[i] = buffer[i + charCount];
+
+			fileBuffer[(k * 1000) + i] = buffer[i + charCount];
+		}
+
+		numByteReceived = recvfrom(sockfd, buffer, 1200, 0, (struct sockaddr *)&clientInfo, &addressLength);
+	}
 
 	FILE* transferFile = fopen(filePacket.filename, "w");
 
-	fwrite(filePacket.filedata, 1, 1000, transferFile);
+	fwrite(fileBuffer, 1, filePacket.size, transferFile);
 
 	fclose(transferFile);
-        if(filePacket.frag_no == filePacket.total_frag){
-            break;
-        }
-   }
-   close(sockfd);
-   
-   
-   
+    close(sockfd);
 
-   return 0;
+	return 0;
 }
