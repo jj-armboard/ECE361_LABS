@@ -133,15 +133,15 @@ int main(int argc, char *argv[]) {
    filePacket.size = fileSize;
    
    fileName = strrchr(filePathName, '/');
-   fileName = strrchr(filePathName, fileName[1]);
+   fileName = strchr(filePathName, fileName[1]);
 
    filePacket.filename = (char *)malloc(strlen(fileName) * sizeof(char *));
    strcpy(filePacket.filename, fileName);
 
-   printf("\nfilePathName = %s\n\n", filePathName);
-   printf("\nfileName = %s\n\n", fileName);
+   printf("\nfilePathName = %s\n", filePathName);
+   printf("\nfileName = %s\n", fileName);
 
-   for (int k = 0; k < filePacket.total_frag + 1; k++) {
+   for (int k = 0; k < filePacket.total_frag; k++) {
 
       filePacket.frag_no = 1;
 

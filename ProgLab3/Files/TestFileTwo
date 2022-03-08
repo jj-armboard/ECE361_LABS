@@ -1,0 +1,13 @@
+Brief Project Description
+The goal of our project is to create a network that can predict future air traffic between airports. Air traffic is predicted to increase globally by 3.5% each year [1]. This increase in air traffic comes with the need to plan around aircraft routing, as well as expanding infrastructure to accommodate this growing sector. Being able to predict the future trends in aircraft traffic will play a crucial role in effectively allocating resources to accommodate more planes in the sky. 
+
+Our team believes that this prediction problem can best be solved using machine learning. Using a Graph Neural Network (GNN), and a list of historical flight plans containing dates, departure and arrival airports, our model will be able to predict how many flights will travel between airports for future time steps. 
+
+A machine learning approach was preferred over using time series, or average forecasting models, since the problem of predicting flight patterns is complex. We chose to use a GNN as our primary solution, since representing our data as a graph, using airports as nodes and flight paths as edges was the most logical, and GNNs perform well when predicting future graphs [2]. Our model will be able to make more advanced connections and learn underlying connections better than that of other neural networks or time series prediction algorithms. 
+
+Individual Contributions and Responsibilities
+Our team collaborates and meets using Facebook Messenger and Zoom. We have weekly meetings to discuss current topics and plans for the project, as well as a shared Google Drive to distribute important files, data and research papers. All of our code is currently held within a shared GitHub repository, which each member has the ability to branch off of and make commits to. Communication between members has been frequent, and progress is easily verifiable and checked weekly. Individual tasks have been planned out ahead of time and are recorded in a Google Doc using a table.
+
+So far, our team has collected the raw data in the form of flight plan Excel files, and cleaned it into both an alphabetically sorted spread sheet and matrices. We've also developed two baseline models, one that uses times series derivatives and another that uses averages to predict future traffic volumes. Since we have finished doing our initial research, collecting and cleaning of data, and have developed two baseline models, our next step is to begin building our primary model.
+
+Since the submission of our project plan, we have made slight alterations to our internal deadlines and milestones. More time will be focussed on developing our primary model, since this is the only major bottleneck in our project.

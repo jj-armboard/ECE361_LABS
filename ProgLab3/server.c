@@ -176,22 +176,38 @@ int main(int argc, char *argv[]) {
 
 	charCount = charCount + strlen(filePacket.filename) + 1;
 
-	
+	//printf("\n%s\n", buffer);
 
 	char* fileBuffer;
 
-	fileBuffer = (char *)malloc(filePacket.size * sizeof(char *));
+	fileBuffer = (char *)malloc(filePacket.size);
 	
 	for (int k = 0; k < filePacket.total_frag; k++) {
 		
-		for (int i = 0; i < numByteReceived; i++) {
+		int byteNumerator = 0;
+
+		if (filePacket.size - (k * 1000) >= 1000) {
+
+			byteNumerator = 1000;
+		}
+		else {
+
+			byteNumerator = filePacket.size % 1000;
+		}
+
+		printf("byteNumerator = %d\n", byteNumerator);
+
+		if (k > 0) {
+			
+			numByteReceived = recvfrom(sockfd, buffer, 1200, 0, (struct sockaddr *)&clientInfo, &addressLength);
+		}
+
+		for (int i = 0; i < byteNumerator; i++) {
 
 			filePacket.filedata[i] = buffer[i + charCount];
 
 			fileBuffer[(k * 1000) + i] = buffer[i + charCount];
 		}
-
-		numByteReceived = recvfrom(sockfd, buffer, 1200, 0, (struct sockaddr *)&clientInfo, &addressLength);
 	}
 
 	FILE* transferFile = fopen(filePacket.filename, "w");
