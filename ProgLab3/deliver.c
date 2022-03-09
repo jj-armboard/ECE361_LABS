@@ -245,6 +245,8 @@ int main(int argc, char *argv[]) {
             timeOut.tv_sec = 0;
             timeOut.tv_usec = averageRTT * 1e6 * 5;
 
+            setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeOut, sizeof(timeOut));
+
             break;
          }
       }

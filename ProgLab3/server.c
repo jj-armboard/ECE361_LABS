@@ -226,7 +226,7 @@ int main(int argc, char *argv[]) {
 			fileBuffer[(k * MAX_PAYLOAD_SIZE) + i] = buffer[i + charCount];
 		}
 
-		if (nextBaseTen == (int)log10(k)) {
+		if (nextBaseTen == (int)log10(k + 2)) {
 
 			charCount += 1;
 			nextBaseTen += 1;
