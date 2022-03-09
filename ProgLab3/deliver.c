@@ -5,10 +5,13 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <math.h>
 
 #include <time.h>
 
-#define MAX_BUFFER_SIZE 100
+#define MAX_MESSAGE_SIZE 200
+#define MAX_PAYLOAD_SIZE 1000
+#define FORMATTED_PACKET_SIZE 1200
 
 struct packet {
    
@@ -16,7 +19,7 @@ struct packet {
    unsigned int frag_no;
    unsigned int size;
    char* filename;
-   char filedata[1000];
+   char filedata[MAX_PAYLOAD_SIZE];
 };
 
 int main(int argc, char *argv[]) {
@@ -24,17 +27,20 @@ int main(int argc, char *argv[]) {
    int sockfd = 0;
    int numByteSent = 0;
    int numByteReceived = 0;
+   int charCount = 0;
 
-   char buffer[MAX_BUFFER_SIZE];
-   char message[MAX_BUFFER_SIZE];
+   char message[MAX_MESSAGE_SIZE];
 
    char commandString[100];
    char filePathName[100];
    char* fileName;
 
+   char headerUnit[20];
+   char headerBuilder[200];
+
    FILE* transferFile;
    int fileSize = 0;
-   char formattedPacket[1200];
+   char formattedPacket[FORMATTED_PACKET_SIZE];
    
    struct packet filePacket;
 
@@ -88,7 +94,7 @@ int main(int argc, char *argv[]) {
    printf("Client Sent: \"%s\"\n", commandString);
 
    // Receives a message from the server
-   numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&senderInfo, &addressLength);
+   numByteReceived = recvfrom(sockfd, message, MAX_MESSAGE_SIZE, 0, (struct sockaddr *)&senderInfo, &addressLength);
   
    clock_t end = clock();
 
@@ -96,19 +102,19 @@ int main(int argc, char *argv[]) {
 
    printf("Round Trip Time = %lf ms\n", time_spent);
 
-   buffer[numByteReceived] = '\0';
-   printf("Client Received: \"%s\"\n", buffer);
+   message[numByteReceived] = '\0';
+   printf("Client Received: \"%s\"\n", message);
 
-   if (strcmp(buffer, "yes") == 0) {
+   if (strcmp(message, "yes") == 0) {
 
       printf("A file transfer can start.\n");
    }
-   else if (strcmp(buffer, "no") == 0) {
+   else if (strcmp(message, "no") == 0) {
 
       printf("Server Returned \"no\": Exiting Program\n");
    }
 
-   //////////////////// Section 2 ////////////////////
+//////////////////// ProgLab 2 ////////////////////
 
    transferFile = fopen(filePathName, "rb");
 
@@ -129,7 +135,7 @@ int main(int argc, char *argv[]) {
 
    printf("Size of the file = %d bytes\n", fileSize);
 
-   filePacket.total_frag = (fileSize / 1000) + 1;
+   filePacket.total_frag = (fileSize / MAX_PAYLOAD_SIZE) + 1;
    filePacket.size = fileSize;
    
    fileName = strrchr(filePathName, '/');
@@ -138,39 +144,34 @@ int main(int argc, char *argv[]) {
    filePacket.filename = (char *)malloc(strlen(fileName) * sizeof(char *));
    strcpy(filePacket.filename, fileName);
 
-   printf("\nfilePathName = %s\n", filePathName);
-   printf("\nfileName = %s\n", fileName);
+   filePacket.frag_no = 0;
 
-   for (int k = 0; k < filePacket.total_frag; k++) {
+   for (int i = 0; i < filePacket.total_frag; i++) {
 
-      filePacket.frag_no = 1;
+      charCount = 0;
 
-      fread(filePacket.filedata, 1, 1000, transferFile);
+      filePacket.frag_no += 1;
 
-      char temp[20];
-      char headerBuilder[200];
+      fread(filePacket.filedata, 1, MAX_PAYLOAD_SIZE, transferFile);
 
-      int charCount = 0;
-      int formattedPacketSize = 0;
-
-      sprintf(temp, "%d", filePacket.total_frag);
-      strcpy(headerBuilder, temp);
+      sprintf(headerUnit, "%d", filePacket.total_frag);
+      strcpy(headerBuilder, headerUnit);
 
       charCount = strlen(headerBuilder);
 
       headerBuilder[charCount] = ':';
       headerBuilder[charCount + 1] = '\0';
 
-      sprintf(temp, "%d", filePacket.frag_no);
-      strcat(headerBuilder, temp);
+      sprintf(headerUnit, "%d", filePacket.frag_no);
+      strcat(headerBuilder, headerUnit);
 
       charCount = strlen(headerBuilder);
 
       headerBuilder[charCount] = ':';
       headerBuilder[charCount + 1] = '\0';
 
-      sprintf(temp, "%d", filePacket.size);
-      strcat(headerBuilder, temp);
+      sprintf(headerUnit, "%d", filePacket.size);
+      strcat(headerBuilder, headerUnit);
 
       charCount = strlen(headerBuilder);
 
@@ -186,25 +187,14 @@ int main(int argc, char *argv[]) {
 
       charCount += 1;
 
-      //formattedPacket = (char *)malloc((charCount + fileSize) * sizeof(char *));
-
       strcpy(formattedPacket, headerBuilder);
       
-      for (int i = 0; i < 1000; i++) {
+      for (int j = 0; j < MAX_PAYLOAD_SIZE; j++) {
 
-         formattedPacket[i + charCount] = filePacket.filedata[i];
+         formattedPacket[j + charCount] = filePacket.filedata[j];
       }
 
-      //formattedPacketSize = charCount + fileSize - 1;
-      formattedPacketSize = charCount + 1000 - 1;
-
-      //formattedPacket[formattedPacketSize] = '\0'; 
-      //printf("filePathName size = %d\n", strlen(filePathName));
-      //printf("formattedPacketSize = %d\n", formattedPacketSize);
-      //printf("%s\n", formattedPacket);
-
-      numByteSent = sendto(sockfd, formattedPacket, 1200, 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
-      printf("Client Sent Packet\n");
+      numByteSent = sendto(sockfd, formattedPacket, FORMATTED_PACKET_SIZE, 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
    }
 
    fclose(transferFile);
