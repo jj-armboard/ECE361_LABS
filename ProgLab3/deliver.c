@@ -6,7 +6,6 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <math.h>
-
 #include <time.h>
 
 #define MAX_MESSAGE_SIZE 200
@@ -28,6 +27,7 @@ int main(int argc, char *argv[]) {
    int numByteSent = 0;
    int numByteReceived = 0;
    int charCount = 0;
+   int fileSize = 0;
 
    char message[MAX_MESSAGE_SIZE];
 
@@ -38,9 +38,14 @@ int main(int argc, char *argv[]) {
    char headerUnit[20];
    char headerBuilder[200];
 
-   FILE* transferFile;
-   int fileSize = 0;
    char formattedPacket[FORMATTED_PACKET_SIZE];
+
+   FILE* transferFile;
+
+   clock_t startClock;
+   clock_t endClock;
+
+   double RTT;
    
    struct packet filePacket;
 
@@ -87,7 +92,7 @@ int main(int argc, char *argv[]) {
       return 0;
    }
    
-   clock_t begin = clock();
+   startClock = clock();
 
    // Sends a message to the server
    numByteSent = sendto(sockfd, commandString, strlen(commandString), 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
@@ -96,11 +101,11 @@ int main(int argc, char *argv[]) {
    // Receives a message from the server
    numByteReceived = recvfrom(sockfd, message, MAX_MESSAGE_SIZE, 0, (struct sockaddr *)&senderInfo, &addressLength);
   
-   clock_t end = clock();
+   endClock = clock();
 
-   double time_spent = ((double)(end - begin) / CLOCKS_PER_SEC) * 1000;
+   RTT = ((double)(endClock - startClock) / CLOCKS_PER_SEC);
 
-   printf("Round Trip Time = %lf ms\n", time_spent);
+   printf("Round Trip Time = %.4f ms\n", RTT * 1000);
 
    message[numByteReceived] = '\0';
    printf("Client Received: \"%s\"\n", message);
@@ -113,6 +118,15 @@ int main(int argc, char *argv[]) {
 
       printf("Server Returned \"no\": Exiting Program\n");
    }
+
+   struct timeval timeOut;
+
+   timeOut.tv_sec = 0;
+   timeOut.tv_usec = RTT * 1000000 * 10; 
+
+   printf("timeOut.tv_usec = %d\n", timeOut.tv_usec);
+
+   setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeOut, sizeof(timeOut));
 
 //////////////////// ProgLab 2 ////////////////////
 
@@ -147,6 +161,8 @@ int main(int argc, char *argv[]) {
    filePacket.frag_no = 0;
 
    for (int i = 0; i < filePacket.total_frag; i++) {
+      
+      //if () {}
 
       charCount = 0;
 
@@ -194,7 +210,52 @@ int main(int argc, char *argv[]) {
          formattedPacket[j + charCount] = filePacket.filedata[j];
       }
 
+      //startClock = clock();
+
       numByteSent = sendto(sockfd, formattedPacket, FORMATTED_PACKET_SIZE, 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
+      
+      //printf("Client Sent Packet To Server\n");
+
+      //////////////////// ProgLab 3 ////////////////////
+
+      int timeOutCounter = 0;
+
+      while (1) {
+
+         numByteReceived = recvfrom(sockfd, message, MAX_MESSAGE_SIZE, 0, (struct sockaddr *)&senderInfo, &addressLength);      
+         
+         message[numByteReceived] = '\0';
+
+         // printf("numByteReceived = %d | %s\n", numByteReceived, message);
+
+         if (numByteReceived == -1 || (strcmp(message, "Ack") != 0)) {
+
+            if (timeOutCounter < 5) {
+
+               numByteSent = sendto(sockfd, formattedPacket, FORMATTED_PACKET_SIZE, 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
+
+               timeOutCounter += 1;
+               printf("Timeout: %d\n", timeOutCounter);
+            }
+            else {
+
+               printf("Too Many Timeouts: Exiting Program\n");
+               return 0;
+            }
+         }
+         else {
+
+            break;
+         }
+      }
+
+      message[numByteReceived] = '\0';
+      //printf("Client Received: \"%s\"\n", message);
+
+      //if (strcmp(message, "Ack") == 0) {
+
+         
+      //}
    }
 
    fclose(transferFile);

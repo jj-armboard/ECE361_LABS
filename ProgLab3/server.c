@@ -25,9 +25,18 @@ int main(int argc, char *argv[]) {
 	int sockfd = 0;
 	int numByteSent = 0;
 	int numByteReceived = 0;
+	int charCount = 0;
+	int fileNameSize = 0;
+
+	int nextBaseTen = 1;
 
 	char message[MAX_MESSAGE_SIZE];
 	char buffer[MAX_BUFFER_SIZE];
+	char headerExtractor[200];
+
+	char* fileBuffer;
+
+	struct packet filePacket;
 
 	struct addrinfo serverInfo, *serverInfoPtr;
 
@@ -87,12 +96,12 @@ int main(int argc, char *argv[]) {
 
 	numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE, 0, (struct sockaddr *)&clientInfo, &addressLength);
 
-	struct packet filePacket;
+	printf("Server Received Packet From Client\n");
 
-	char headerExtractor[200];
+	strcpy(message, "Ack");
 
-	int charCount = 0;
-	int fileNameSize = 0;
+	numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
+	printf("Server Sent: \"%s\"\n", message);
 
 	memset(headerExtractor, 0, 200);
 
@@ -178,11 +187,7 @@ int main(int argc, char *argv[]) {
 
 	charCount = charCount + strlen(filePacket.filename) + 1;
 
-	char* fileBuffer;
-
 	fileBuffer = (char *)malloc(filePacket.size);
-
-	int nextBaseTen = 1;
 
 	for (int k = 0; k < filePacket.total_frag; k++) {
 		
@@ -199,7 +204,30 @@ int main(int argc, char *argv[]) {
 
 		if (k > 0) {
 			
-			numByteReceived = recvfrom(sockfd, buffer, 1200, 0, (struct sockaddr *)&clientInfo, &addressLength);
+			// Simulated Packet Drop
+			for (int j = 0; ; j++) {
+					
+				numByteReceived = recvfrom(sockfd, buffer, 1200, 0, (struct sockaddr *)&clientInfo, &addressLength);
+
+				if ((double)rand() / (double)((unsigned)RAND_MAX + 1) > 20e-2) {
+
+					printf("Server Received Packet From Client\n");
+
+					strcpy(message, "Ack");
+
+					numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
+					printf("Server Sent: \"%s\"\n", message);
+
+					break;
+				}
+				else {
+
+					strcpy(message, "DROPPED");
+
+					//numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
+					printf("Server Sent: \"%s\"\n", message);
+				}
+			}
 		}
 
 		for (int i = 0; i < byteNumerator; i++) {
