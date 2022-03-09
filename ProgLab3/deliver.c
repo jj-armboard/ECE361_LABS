@@ -8,6 +8,7 @@
 #include <math.h>
 #include <time.h>
 
+#define ALPHA 0.125
 #define MAX_MESSAGE_SIZE 200
 #define MAX_PAYLOAD_SIZE 1000
 #define FORMATTED_PACKET_SIZE 1200
@@ -45,7 +46,7 @@ int main(int argc, char *argv[]) {
    clock_t startClock;
    clock_t endClock;
 
-   double RTT;
+   double averageRTT;
    
    struct packet filePacket;
 
@@ -103,16 +104,14 @@ int main(int argc, char *argv[]) {
   
    endClock = clock();
 
-   RTT = ((double)(endClock - startClock) / CLOCKS_PER_SEC);
-
-   printf("Round Trip Time = %.4f ms\n", RTT * 1000);
+   averageRTT = ((double)(endClock - startClock) / CLOCKS_PER_SEC);
 
    message[numByteReceived] = '\0';
    printf("Client Received: \"%s\"\n", message);
 
    if (strcmp(message, "yes") == 0) {
 
-      printf("A file transfer can start.\n");
+      printf("A File Transfer Can Start\n");
    }
    else if (strcmp(message, "no") == 0) {
 
@@ -122,9 +121,7 @@ int main(int argc, char *argv[]) {
    struct timeval timeOut;
 
    timeOut.tv_sec = 0;
-   timeOut.tv_usec = RTT * 1000000 * 10; 
-
-   printf("timeOut.tv_usec = %d\n", timeOut.tv_usec);
+   timeOut.tv_usec = averageRTT * 1e6 * 5; 
 
    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeOut, sizeof(timeOut));
 
@@ -134,20 +131,18 @@ int main(int argc, char *argv[]) {
 
    if (transferFile == NULL) {
 
-      printf("File failed to open!\n");
+      printf("File failed to open\n");
       return 0;
    }
    else {
 
-      printf("File successfully opened!\n");
+      printf("File successfully opened\n");
    }
 
    fseek(transferFile, 0, SEEK_END);
    fileSize = ftell(transferFile);
 
    fseek(transferFile, 0, SEEK_SET);
-
-   printf("Size of the file = %d bytes\n", fileSize);
 
    filePacket.total_frag = (fileSize / MAX_PAYLOAD_SIZE) + 1;
    filePacket.size = fileSize;
@@ -158,11 +153,11 @@ int main(int argc, char *argv[]) {
    filePacket.filename = (char *)malloc(strlen(fileName) * sizeof(char *));
    strcpy(filePacket.filename, fileName);
 
+   printf("Filename: %s | Size: %d Bytes | Number Of Packets: %d\n", filePacket.filename, filePacket.size, filePacket.total_frag);
+
    filePacket.frag_no = 0;
 
    for (int i = 0; i < filePacket.total_frag; i++) {
-      
-      //if () {}
 
       charCount = 0;
 
@@ -210,11 +205,9 @@ int main(int argc, char *argv[]) {
          formattedPacket[j + charCount] = filePacket.filedata[j];
       }
 
-      //startClock = clock();
+      startClock = clock();
 
       numByteSent = sendto(sockfd, formattedPacket, FORMATTED_PACKET_SIZE, 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
-      
-      //printf("Client Sent Packet To Server\n");
 
       //////////////////// ProgLab 3 ////////////////////
 
@@ -226,16 +219,16 @@ int main(int argc, char *argv[]) {
          
          message[numByteReceived] = '\0';
 
-         // printf("numByteReceived = %d | %s\n", numByteReceived, message);
-
          if (numByteReceived == -1 || (strcmp(message, "Ack") != 0)) {
 
             if (timeOutCounter < 5) {
 
+               startClock = clock();
+
                numByteSent = sendto(sockfd, formattedPacket, FORMATTED_PACKET_SIZE, 0, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
 
                timeOutCounter += 1;
-               printf("Timeout: %d\n", timeOutCounter);
+               printf("Packet %d: Timed Out | Average RTT: %.4f ms | Retransmitting\n", i, averageRTT * 1000);
             }
             else {
 
@@ -245,17 +238,16 @@ int main(int argc, char *argv[]) {
          }
          else {
 
+            endClock = clock();
+
+            averageRTT = ((1 - ALPHA) * averageRTT) + (ALPHA * ((double)(endClock - startClock) / CLOCKS_PER_SEC));
+
+            timeOut.tv_sec = 0;
+            timeOut.tv_usec = averageRTT * 1e6 * 5;
+
             break;
          }
       }
-
-      message[numByteReceived] = '\0';
-      //printf("Client Received: \"%s\"\n", message);
-
-      //if (strcmp(message, "Ack") == 0) {
-
-         
-      //}
    }
 
    fclose(transferFile);

@@ -11,6 +11,8 @@
 #define MAX_PAYLOAD_SIZE 1000
 #define MAX_BUFFER_SIZE 1200
 
+#define PACKET_DROP_RATE 0.1
+
 struct packet {
    
    unsigned int total_frag;
@@ -96,12 +98,11 @@ int main(int argc, char *argv[]) {
 
 	numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE, 0, (struct sockaddr *)&clientInfo, &addressLength);
 
-	printf("Server Received Packet From Client\n");
+	printf("File Transfer Started\n");
 
 	strcpy(message, "Ack");
 
 	numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
-	printf("Server Sent: \"%s\"\n", message);
 
 	memset(headerExtractor, 0, 200);
 
@@ -118,8 +119,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	filePacket.total_frag = atoi(headerExtractor);
-
-	printf("filePacket.total_frag = %d\n", filePacket.total_frag);
 
 	charCount = strlen(headerExtractor) + 1;
 
@@ -139,8 +138,6 @@ int main(int argc, char *argv[]) {
 
 	filePacket.frag_no = atoi(headerExtractor);
 
-	printf("filePacket.frag_no = %d\n", filePacket.frag_no);
-
 	charCount = charCount + strlen(headerExtractor) + 1;
 
 	memset(headerExtractor, 0, 200);
@@ -158,8 +155,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	filePacket.size = atoi(headerExtractor);
-
-	printf("filePacket.size = %d\n", filePacket.size);
 
 	charCount = charCount + strlen(headerExtractor) + 1;
 
@@ -183,7 +178,7 @@ int main(int argc, char *argv[]) {
 
 	strcpy(filePacket.filename, headerExtractor);
 
-	printf("filePacket.filename = %s\n", filePacket.filename);
+	printf("Filename: %s | Size: %d Bytes | Number Of Packets: %d\n", filePacket.filename, filePacket.size, filePacket.total_frag);
 
 	charCount = charCount + strlen(filePacket.filename) + 1;
 
@@ -193,39 +188,33 @@ int main(int argc, char *argv[]) {
 		
 		int byteNumerator = 0;
 
-		if (filePacket.size - (k * 1000) >= 1000) {
+		if (filePacket.size - (k * MAX_PAYLOAD_SIZE) >= MAX_PAYLOAD_SIZE) {
 
-			byteNumerator = 1000;
+			byteNumerator = MAX_PAYLOAD_SIZE;
 		}
 		else {
 
-			byteNumerator = filePacket.size % 1000;
+			byteNumerator = filePacket.size % MAX_PAYLOAD_SIZE;
 		}
 
 		if (k > 0) {
 			
 			// Simulated Packet Drop
-			for (int j = 0; ; j++) {
+			while (1) {
 					
-				numByteReceived = recvfrom(sockfd, buffer, 1200, 0, (struct sockaddr *)&clientInfo, &addressLength);
+				numByteReceived = recvfrom(sockfd, buffer, MAX_BUFFER_SIZE, 0, (struct sockaddr *)&clientInfo, &addressLength);
 
-				if ((double)rand() / (double)((unsigned)RAND_MAX + 1) > 20e-2) {
-
-					printf("Server Received Packet From Client\n");
+				if ((double)rand() / (double)((unsigned)RAND_MAX + 1) > PACKET_DROP_RATE) {
 
 					strcpy(message, "Ack");
 
 					numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
-					printf("Server Sent: \"%s\"\n", message);
 
 					break;
 				}
 				else {
 
-					strcpy(message, "DROPPED");
-
-					//numByteSent = sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&clientInfo, serverInfoPtr->ai_addrlen);
-					printf("Server Sent: \"%s\"\n", message);
+					printf("Packet %d: DROPPED\n", k);
 				}
 			}
 		}
@@ -234,7 +223,7 @@ int main(int argc, char *argv[]) {
 
 			filePacket.filedata[i] = buffer[i + charCount];
 
-			fileBuffer[(k * 1000) + i] = buffer[i + charCount];
+			fileBuffer[(k * MAX_PAYLOAD_SIZE) + i] = buffer[i + charCount];
 		}
 
 		if (nextBaseTen == (int)log10(k)) {
