@@ -11,7 +11,31 @@
 
 #define BACKLOG 10 // how many pending connections queue will hold
 #define MAX_CLIENTS 20
+#define MAX_NAME 200
+#define MAX_DATA 1200
 #define MAX_BUFFER_SIZE 1200
+
+#define LOGIN 0
+#define LO_ACK 1
+#define LO_NAK 2
+#define EXIT 3
+#define JOIN 4
+#define JN_ACK 5
+#define JN_NAK 6
+#define LEAVE_SESS 7
+#define NEW_SESS 8
+#define NS_ACK 9
+#define MESSAGE 10
+#define QUERY 11
+#define QU_ACK 12
+
+struct message {
+   
+   unsigned int type;
+   unsigned int size;
+   unsigned char source[MAX_NAME];
+   unsigned char data[MAX_DATA];
+};
 
 int main(int argc, char *argv[]) {
 
@@ -62,7 +86,7 @@ int main(int argc, char *argv[]) {
    setsockopt(masterSockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt));
 
    // Bind it to the port we passed in to getaddrinfo()
-   bind(masterSockfd, serverInfoPtr->ai_addr, sizeof(*(serverInfoPtr->ai_addr)));
+   bind(masterSockfd, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
 
    listen(masterSockfd, BACKLOG);
 
