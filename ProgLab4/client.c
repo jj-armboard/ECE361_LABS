@@ -17,6 +17,11 @@
 #define MAX_DATA 1000
 #define MAX_BUFFER_SIZE 1200
 
+#define INVALID_USERNAME -1
+#define INVALID_PASSWORD -2
+#define ALREADY_LOGGED_IN -3
+#define VALID -4
+
 #define LOGIN 0
 #define LO_ACK 1
 #define LO_NAK 2
@@ -47,6 +52,8 @@ int main() {
    int opt = 1;
    int firstIteration = 0;
    int numByteSent = 0;
+   int numByteReceived = 0;
+   int loggedIn = 0;
       
    char enterCheck = 0;
 
@@ -77,60 +84,80 @@ int main() {
 
    addressLength = sizeof(serverInfoPtr->ai_addr);
 
-   printf("Please Login:\n");
-   scanf("%s", commandString);
+   while (1) {
 
-   while (strcmp(commandString, "/login") != 0) {
-
-      enterCheck = 0;
-
-      if (firstIteration == 0) {
-
-         firstIteration = 1;
-      }
-      else {
-
-         while(enterCheck != '\n') {
-            
-            scanf("%c", &enterCheck);
-         }
+      if (loggedIn == 0) {
          
-         printf("Try Entering: /login <Client ID> <Password> <Server-IP> <Server-Port>\n");
+         printf("Please Login:\n");
          scanf("%s", commandString);
+
+         while (strcmp(commandString, "/login") != 0) {
+
+            enterCheck = 0;
+
+            if (firstIteration == 0) {
+
+               firstIteration = 1;
+            }
+            else {
+
+               while(enterCheck != '\n') {
+                  
+                  scanf("%c", &enterCheck);
+               }
+               
+               printf("Try Entering: /login <Client ID> <Password> <Server-IP> <Server-Port>\n");
+               scanf("%s", commandString);
+            }
+         }
+
+         scanf("%s %s %s %s", inputClientID, inputPassword, inputServerIP, inputServerPort);
+
+         // Resolves a hostname into an address
+         if (getaddrinfo(inputServerIP, inputServerPort, &serverInfo, &serverInfoPtr) != 0) {
+
+            printf("Connection To The Server Failed: Exiting Program\n");
+            return 0;
+         }
+
+         // Create a socket
+         sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+         setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt));
+
+         if (connect(sockfd, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen) == -1) {
+
+            printf("Connection To The Server Failed: Exiting Program\n");
+            return 0;
+         }
+
+         numByteSent = formatPacket(LOGIN, strlen(inputPassword), inputClientID, inputPassword, buffer);
+
+         write(sockfd, buffer, numByteSent);
+
+         numByteReceived = read(sockfd, buffer, MAX_BUFFER_SIZE);
+
+         buffer[numByteReceived] = '\0';
+
+         if (atoi(buffer) == INVALID_USERNAME) {
+         
+            printf("Invalid Username:\n");
+         }
+         else if (atoi(buffer) == INVALID_PASSWORD) {
+
+            printf("Invalid Password:\n");
+         }
+         else if (atoi(buffer) == ALREADY_LOGGED_IN) {
+
+            printf("Already Logged In:\n");
+         }
+         else if (atoi(buffer) == VALID) {
+
+            printf("Valid:\n");
+            loggedIn = 1;
+         }
       }
    }
-
-   scanf("%s %s %s %s", inputClientID, inputPassword, inputServerIP, inputServerPort);
-
-   printf("You Entered: %s %s %s %s %s\n", commandString, inputClientID, inputPassword, inputServerIP, inputServerPort);
-
-   // Resolves a hostname into an address
-   if (getaddrinfo(inputServerIP, inputServerPort, &serverInfo, &serverInfoPtr) != 0) {
-
-      printf("Connection To The Server Failed: Exiting Program\n");
-      return 0;
-   }
-
-   // Create a socket
-   sockfd = socket(AF_INET, SOCK_STREAM, 0);
-
-   setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt));
-
-   if (connect(sockfd, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen) == -1) {
-
-      printf("Connection To The Server Failed: Exiting Program\n");
-      return 0;
-   }
-
-   char testMessage[1000] = "This is a test!";
-
-   numByteSent = formatPacket(LOGIN, strlen(testMessage), inputClientID, testMessage, buffer);
-
-   printf("numByteSent = %d\n", numByteSent);
-
-   printf("%s\n", buffer);
-
-   write(sockfd, buffer, numByteSent);
 
    return 0;
 }
