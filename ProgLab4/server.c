@@ -12,10 +12,12 @@
 #define NUMBER_OF_USERS 5
 #define BACKLOG 10 // how many pending connections queue will hold
 #define MAX_CLIENTS 20
+#define MAX_HEADER_UNIT_SIZE 20
+#define MAX_HEADER_BUILDER_SIZE 200
 #define MAX_CONTROL_MESSAGE_SIZE 200
 #define MAX_HEADER_EXTRACTOR_SIZE 200
 #define MAX_NAME 200
-#define MAX_DATA 1200
+#define MAX_DATA 1000
 #define MAX_BUFFER_SIZE 1200
 
 #define INVALID_USERNAME -1
@@ -33,9 +35,10 @@
 #define LEAVE_SESS 7
 #define NEW_SESS 8
 #define NS_ACK 9
-#define MESSAGE 10
-#define QUERY 11
-#define QU_ACK 12
+#define NS_NAK 10
+#define MESSAGE 11
+#define QUERY 12
+#define QU_ACK 13
 
 struct message {
    
@@ -49,16 +52,29 @@ struct user {
 
    char* username;
    char* password;
-   char* ip;
-
+   
+   int sockfd;
    int loggedIn;
 };
 
-int findUserIndex(char* ip);
+struct session {
+
+   char name[MAX_NAME];
+
+   int active;
+   int numberOfUsers;
+   int UserIndexSessionLookup[NUMBER_OF_USERS];
+};
+
+int findSessionWithName(char* sessionName);
+int findInactiveSession();
+int findUserIndex(int sockfd);
 int usernamePasswordCheck(unsigned char* username, unsigned char* password);
 void deconstructPacket(unsigned char* formattedPacket, struct message* clientMessage);
+int formatPacket(unsigned int type, unsigned int size, unsigned char* source, unsigned char* data, unsigned char* formattedPacket);
 
 struct user* listOfUsers[NUMBER_OF_USERS];
+struct session listOfSessions[NUMBER_OF_USERS];
 
 int main(int argc, char *argv[]) {
 
@@ -67,8 +83,12 @@ int main(int argc, char *argv[]) {
    int maxSockfd = 0;
    int currentSockfd = 0;
    int opt = 1;
+   int numByteSent = 0;
    int numByteReceived = 0;
    int usernamePasswordReturn = 0;
+   int addressPortReaderSize = 0;
+   int inactiveSession = 0;
+   int findSessionWithNameReturn = 0;
 
    fd_set readerfd;
 
@@ -82,6 +102,7 @@ int main(int argc, char *argv[]) {
    struct addrinfo* serverInfoPtr;
    struct sockaddr_storage clientInfo;
    struct message clientMessage;
+   struct sockaddr_in addressPortReader;
 
    socklen_t addressLength;
 
@@ -93,22 +114,27 @@ int main(int argc, char *argv[]) {
 
    userAlpha.username = "Alpha";
    userAlpha.password = "password1";
+   userAlpha.sockfd = -1;
    userAlpha.loggedIn = 0;
 
    userBeta.username = "Beta";
    userBeta.password = "password2";
+   userBeta.sockfd = -1;
    userBeta.loggedIn = 0;
    
    userDelta.username = "Delta";
    userDelta.password = "password3";
+   userDelta.sockfd = -1;
    userDelta.loggedIn = 0;
 
    userGamma.username = "Gamma";
    userGamma.password = "password4";
+   userGamma.sockfd = -1;
    userGamma.loggedIn = 0;
 
    userOmega.username = "Omega";
    userOmega.password = "password5";
+   userOmega.sockfd = -1;
    userOmega.loggedIn = 0;
 
    listOfUsers[0] = &userAlpha;
@@ -116,6 +142,15 @@ int main(int argc, char *argv[]) {
    listOfUsers[2] = &userDelta;
    listOfUsers[3] = &userGamma;
    listOfUsers[4] = &userOmega;
+
+   for (int i = 0; i < NUMBER_OF_USERS; i++) {
+
+      memset(listOfSessions[i].name, 0, MAX_NAME);
+      memset(listOfSessions[i].UserIndexSessionLookup, 0, NUMBER_OF_USERS);
+
+      listOfSessions[i].active = 0;
+      listOfSessions[i].numberOfUsers = 0;
+   }
 
    // Initialize serverInfo
    serverInfo.ai_flags = AI_PASSIVE;
@@ -134,6 +169,7 @@ int main(int argc, char *argv[]) {
    }
 
    addressLength = sizeof(serverInfoPtr->ai_addr);
+   addressPortReaderSize = sizeof(addressPortReader);
 
    // Resolves a hostname into an address
    getaddrinfo(NULL, argv[1], &serverInfo, &serverInfoPtr);
@@ -206,9 +242,11 @@ int main(int argc, char *argv[]) {
 
             if (numByteReceived == 0) {
 
-               clientIP = inet_ntoa(((struct sockaddr_in *)&clientInfo)->sin_addr);
+               getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
+               clientIP = inet_ntoa(addressPortReader.sin_addr);
 
-               listOfUsers[findUserIndex(clientIP)]->loggedIn = 0;
+               listOfUsers[findUserIndex(currentSockfd)]->loggedIn = 0;
+               listOfUsers[findUserIndex(currentSockfd)]->sockfd = -1;
 
                printf("Client Disconnected IP: %s\n", clientIP);
 
@@ -217,8 +255,6 @@ int main(int argc, char *argv[]) {
                clientSocket[i] = 0;
             }
             else {
-
-               buffer[numByteReceived] = '\0';
 
                deconstructPacket(buffer, &clientMessage);
 
@@ -229,10 +265,13 @@ int main(int argc, char *argv[]) {
                   if (usernamePasswordReturn == INVALID_USERNAME) {
 
                      sprintf(controlMessage, "%d", INVALID_USERNAME);
+                     numByteSent = formatPacket(LO_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
 
-                     write(currentSockfd, controlMessage, strlen(controlMessage));
+                     write(currentSockfd, buffer, numByteSent);
 
-                     clientIP = inet_ntoa(((struct sockaddr_in *)&clientInfo)->sin_addr);
+                     getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
+                     clientIP = inet_ntoa(addressPortReader.sin_addr);
+
                      printf("Invalid Username, Client Disconnected: %s\n", clientIP);
 
                      close(currentSockfd);
@@ -242,9 +281,13 @@ int main(int argc, char *argv[]) {
                   else if (usernamePasswordReturn == INVALID_PASSWORD) {
 
                      sprintf(controlMessage, "%d", INVALID_PASSWORD);
-                     write(currentSockfd, controlMessage, strlen(controlMessage));
+                     numByteSent = formatPacket(LO_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
 
-                     clientIP = inet_ntoa(((struct sockaddr_in *)&clientInfo)->sin_addr);
+                     write(currentSockfd, buffer, numByteSent);
+
+                     getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
+                     clientIP = inet_ntoa(addressPortReader.sin_addr);
+
                      printf("Invalid Password, Client Disconnected: %s\n", clientIP);
 
                      close(currentSockfd);
@@ -255,22 +298,26 @@ int main(int argc, char *argv[]) {
 
                      if (listOfUsers[usernamePasswordReturn]->loggedIn == 0) {
 
-                        clientIP = inet_ntoa(((struct sockaddr_in *)&clientInfo)->sin_addr);
-
                         listOfUsers[usernamePasswordReturn]->loggedIn = 1;
-                        listOfUsers[usernamePasswordReturn]->ip = clientIP;
+                        listOfUsers[usernamePasswordReturn]->sockfd = currentSockfd;
 
                         sprintf(controlMessage, "%d", VALID);
-                        write(currentSockfd, controlMessage, strlen(controlMessage));
+                        numByteSent = formatPacket(LO_ACK, strlen(controlMessage), "Server", controlMessage, buffer);
+                        
+                        write(currentSockfd, buffer, numByteSent);
 
                         printf("Valid:\n");
                      }
                      else if (listOfUsers[usernamePasswordReturn]->loggedIn == 1) {
 
                         sprintf(controlMessage, "%d", ALREADY_LOGGED_IN);
-                        write(currentSockfd, controlMessage, strlen(controlMessage));
+                        numByteSent = formatPacket(LO_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
 
-                        clientIP = inet_ntoa(((struct sockaddr_in *)&clientInfo)->sin_addr);
+                        write(currentSockfd, buffer, numByteSent);
+
+                        getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
+                        clientIP = inet_ntoa(addressPortReader.sin_addr);
+
                         printf("Already Logged In, Client Disconnected: %s\n", clientIP);
 
                         close(currentSockfd);
@@ -278,6 +325,75 @@ int main(int argc, char *argv[]) {
                         clientSocket[i] = 0;
                      }
                   }
+               }
+               else if (clientMessage.type == EXIT) {
+
+                  getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
+                  clientIP = inet_ntoa(addressPortReader.sin_addr);
+
+                  listOfUsers[findUserIndex(currentSockfd)]->loggedIn = 0;
+                  listOfUsers[findUserIndex(currentSockfd)]->sockfd = -1;
+
+                  printf("Client Logged Out IP: %s\n", clientIP);
+
+                  close(currentSockfd);
+
+                  clientSocket[i] = 0;
+               }
+               else if (clientMessage.type == JOIN) {
+
+               }
+               else if (clientMessage.type == LEAVE_SESS) {
+
+               }
+               else if (clientMessage.type == NEW_SESS) {
+               
+                  findSessionWithNameReturn = findSessionWithName(clientMessage.data);
+
+                  if (findSessionWithNameReturn == -1) {
+
+                     inactiveSession = findInactiveSession();
+
+                     if (inactiveSession != -1) {
+
+                        strcpy(listOfSessions[inactiveSession].name, clientMessage.data);
+
+                        listOfSessions[inactiveSession].active = 1;
+                        listOfSessions[inactiveSession].numberOfUsers = 1;
+                        listOfSessions[inactiveSession].UserIndexSessionLookup[findUserIndex(currentSockfd)] = 1;
+
+                        printf("Session Created:\n");
+
+                        sprintf(controlMessage, "%d", NS_ACK);
+                        numByteSent = formatPacket(NS_ACK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                        write(currentSockfd, buffer, numByteSent);
+                     }
+                     else if (inactiveSession == -1) {
+
+                        printf("Maximum Session Limit Has Been Reached:\n");
+
+                        strcpy(controlMessage, "MAX_SESSION_LIMIT_REACHED");
+                        numByteSent = formatPacket(NS_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                        write(currentSockfd, buffer, numByteSent);
+                     }
+                  }
+                  else if (findSessionWithNameReturn != -1) {
+
+                     printf("A Session With The Same Name Already Exists:\n");
+
+                     strcpy(controlMessage, "SESSION_WITH_SAME_NAME");
+                     numByteSent = formatPacket(NS_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                     write(currentSockfd, buffer, numByteSent);
+                  }
+               }
+               else if (clientMessage.type == QUERY) {
+
+               }
+               else if (clientMessage.type == MESSAGE) {
+
                }
             }
          }
@@ -287,11 +403,37 @@ int main(int argc, char *argv[]) {
    return 0;
 }
 
-int findUserIndex(char* ip) {
+int findSessionWithName(char* sessionName) {
 
    for (int i = 0; i < NUMBER_OF_USERS; i++) {
 
-      if (listOfUsers[i]->ip == ip) {
+      if(strcmp(listOfSessions[i].name, sessionName) == 0) {
+
+         return i;
+      }
+   }
+
+   return -1;
+}
+
+int findInactiveSession() {
+
+   for (int i = 0; i < NUMBER_OF_USERS; i++) {
+
+      if (listOfSessions[i].active == 0) {
+
+         return i;
+      }
+   }
+
+   return -1;
+}
+
+int findUserIndex(int sockfd) {
+
+   for (int i = 0; i < NUMBER_OF_USERS; i++) {
+
+      if (listOfUsers[i]->sockfd == sockfd) {
 
          return i;
       }
@@ -343,7 +485,12 @@ void deconstructPacket(unsigned char* formattedPacket, struct message* clientMes
 
    char headerExtractor[MAX_HEADER_EXTRACTOR_SIZE];
 
-   memset(headerExtractor, 0, 200);
+   clientMessage->type = 0;
+   clientMessage->size = 0;
+   memset(clientMessage->source , 0, MAX_NAME);
+   memset(clientMessage->data, 0, MAX_DATA);
+
+   memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE);
 
    for (int i = 0; ; i++) {
 
@@ -361,7 +508,7 @@ void deconstructPacket(unsigned char* formattedPacket, struct message* clientMes
 
    charCount = strlen(headerExtractor) + 1;
 
-   memset(headerExtractor, 0, 200);
+   memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE);
 
    for (int i = 0; ; i++) {
 
@@ -379,7 +526,7 @@ void deconstructPacket(unsigned char* formattedPacket, struct message* clientMes
 
    charCount = charCount + strlen(headerExtractor) + 1;
 
-	memset(headerExtractor, 0, 200);
+	memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE);
 
    for (int i = 0; ; i++) {
 
@@ -403,3 +550,47 @@ void deconstructPacket(unsigned char* formattedPacket, struct message* clientMes
    }
 }
 
+int formatPacket(unsigned int type, unsigned int size, unsigned char* source, unsigned char* data, unsigned char* formattedPacket) {
+
+   int charCount = 0;
+
+   char headerUnit[MAX_HEADER_UNIT_SIZE];
+   char headerBuilder[MAX_HEADER_BUILDER_SIZE];
+
+   sprintf(headerUnit, "%d", type);
+   strcpy(headerBuilder, headerUnit);
+
+   charCount = strlen(headerBuilder);
+
+   headerBuilder[charCount] = ':';
+   headerBuilder[charCount + 1] = '\0';
+
+   sprintf(headerUnit, "%d", size);
+   strcat(headerBuilder, headerUnit);
+
+   charCount = strlen(headerBuilder);
+
+   headerBuilder[charCount] = ':';
+   headerBuilder[charCount + 1] = '\0';
+
+   strcat(headerBuilder, source);
+
+   charCount = strlen(headerBuilder);
+
+   headerBuilder[charCount] = ':';
+   headerBuilder[charCount + 1] = '\0';
+
+   strcpy(formattedPacket, headerBuilder);
+
+   headerBuilder[charCount] = ':';
+   headerBuilder[charCount + 1] = '\0';
+
+   charCount += 1;
+
+   for (int i = 0; i < MAX_DATA; i++) {
+
+      formattedPacket[i + charCount] = data[i];
+   }
+
+   return charCount + size;
+}
