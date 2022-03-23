@@ -64,6 +64,7 @@ int main() {
    int validCommand = 1;
    int inSession = 0;
    int clearCommandCheck = 0;
+   int sscanfReturn = 0;
       
    char enterCheck = 0;
 
@@ -245,12 +246,26 @@ int main() {
                   
                   validCommand = 1;
 
-                  sscanf(strchr(inputBuffer, ' '), "%s", sessionID);
+                  if (strchr(inputBuffer, ' ') != NULL) {
 
-                  strcpy(packetData, sessionID);
-                  numByteSent = formatPacket(JOIN, strlen(packetData), inputClientID, packetData, buffer);
+                     sscanfReturn = sscanf(strchr(inputBuffer, ' '), "%s", sessionID);
 
-                  write(sockfd, buffer, numByteSent);
+                     if (sscanfReturn != EOF) {
+
+                        strcpy(packetData, sessionID);
+                        numByteSent = formatPacket(JOIN, strlen(packetData), inputClientID, packetData, buffer);
+
+                        write(sockfd, buffer, numByteSent);
+                     }
+                     else if (sscanfReturn == EOF) {
+
+                        printf("Invalid Session ID:\n");
+                     }
+                  }
+                  else if (strchr(inputBuffer, ' ') == NULL) {
+                     
+                     printf("Try Entering: /joinsession <Session ID>\n");
+                  }
                }
                else if (strcmp(commandString, "/leavesession") == 0) {
 
@@ -269,12 +284,26 @@ int main() {
 
                   validCommand = 1;
 
-                  sscanf(strchr(inputBuffer, ' '), "%s", sessionID);
+                  if (strchr(inputBuffer, ' ') != NULL) {
 
-                  strcpy(packetData, sessionID);
-                  numByteSent = formatPacket(NEW_SESS, strlen(packetData), inputClientID, packetData, buffer);
+                     sscanfReturn = sscanf(strchr(inputBuffer, ' '), "%s", sessionID);
 
-                  write(sockfd, buffer, numByteSent);
+                     if (sscanfReturn != EOF) {
+
+                        strcpy(packetData, sessionID);
+                        numByteSent = formatPacket(NEW_SESS, strlen(packetData), inputClientID, packetData, buffer);
+
+                        write(sockfd, buffer, numByteSent);
+                     }
+                     else if (sscanfReturn == EOF) {
+
+                        printf("Invalid Session ID:\n");
+                     }
+                  }
+                  else if (strchr(inputBuffer, ' ') == NULL) {
+                     
+                     printf("Try Entering: /createsession <Session ID>\n");
+                  }
                }
                else if (strcmp(commandString, "/list") == 0) {
 

@@ -230,7 +230,7 @@ int main(int argc, char *argv[]) {
 
          clientIP = inet_ntoa(((struct sockaddr_in *)&clientInfo)->sin_addr);
 
-         printf("New Connection IP: %s\n", clientIP);
+         printf("New Connection With IP: %s\n", clientIP);
 
          for (int i = 0; i < MAX_CLIENTS; i++) {
 
@@ -258,12 +258,12 @@ int main(int argc, char *argv[]) {
                getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                clientIP = inet_ntoa(addressPortReader.sin_addr);
 
+               printf("User \"%s\" Disconnected With IP: %s\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, clientIP);
+
                noSessionList[findUserIndexWithSockfd(currentSockfd)] = 0;
                listOfUsers[findUserIndexWithSockfd(currentSockfd)]->loggedIn = 0;
                listOfSessions[findSessionIndexWithSockfd(currentSockfd)].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 0;
                listOfUsers[findUserIndexWithSockfd(currentSockfd)]->sockfd = -1;
-
-               printf("Client Disconnected IP: %s\n", clientIP);
 
                close(currentSockfd);
 
@@ -322,7 +322,10 @@ int main(int argc, char *argv[]) {
                         
                         write(currentSockfd, buffer, numByteSent);
 
-                        printf("Valid:\n");
+                        getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
+                        clientIP = inet_ntoa(addressPortReader.sin_addr);
+
+                        printf("User \"%s\" Logged In With IP: %s\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, clientIP);
                      }
                      else if (listOfUsers[usernamePasswordReturn]->loggedIn == 1) {
 
@@ -334,7 +337,7 @@ int main(int argc, char *argv[]) {
                         getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                         clientIP = inet_ntoa(addressPortReader.sin_addr);
 
-                        printf("Already Logged In, Client Disconnected: %s\n", clientIP);
+                        printf("User \"%s\" Already Logged In, Client Disconnected: %s\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, clientIP);
 
                         close(currentSockfd);
 
@@ -349,12 +352,12 @@ int main(int argc, char *argv[]) {
                   getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                   clientIP = inet_ntoa(addressPortReader.sin_addr);
 
+                  printf("Client \"%s\" Logged Out With IP: %s\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, clientIP);
+
                   noSessionList[findUserIndexWithSockfd(currentSockfd)] = 0;
                   listOfUsers[findUserIndexWithSockfd(currentSockfd)]->loggedIn = 0;
                   listOfSessions[findSessionIndexWithSockfd(currentSockfd)].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 0;
                   listOfUsers[findUserIndexWithSockfd(currentSockfd)]->sockfd = -1;
-
-                  printf("Client Logged Out IP: %s\n", clientIP);
 
                   close(currentSockfd);
 
@@ -372,7 +375,7 @@ int main(int argc, char *argv[]) {
                      listOfSessions[findSessionWithNameReturn].numberOfUsers += 1;
                      listOfSessions[findSessionWithNameReturn].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 1;
 
-                     printf("Client \"%s\" Joined Session \"%s\"\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, listOfSessions[findSessionWithNameReturn].sessionName);
+                     printf("User \"%s\" Joined Session \"%s\"\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, listOfSessions[findSessionWithNameReturn].sessionName);
                   
                      sprintf(controlMessage, "%d", JN_ACK);
                      numByteSent = formatPacket(JN_ACK, strlen(controlMessage), "Server", controlMessage, buffer);
@@ -390,6 +393,8 @@ int main(int argc, char *argv[]) {
                   }
                }
                else if (clientMessage.type == LEAVE_SESS) {
+                  
+                  printf("User \"%s\" Left Session \"%s\"\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, listOfSessions[findSessionIndexWithSockfd(currentSockfd)].sessionName);
 
                   leaveSession(currentSockfd);
                }
@@ -407,14 +412,12 @@ int main(int argc, char *argv[]) {
 
                         strcpy(listOfSessions[inactiveSession].sessionName, clientMessage.data);
 
-                        //printf("currentSockfd = %d | findUserIndexWithSockfd(currentSockfd) = %d\n", currentSockfd, findUserIndexWithSockfd(currentSockfd));
-
                         noSessionList[findUserIndexWithSockfd(currentSockfd)] = 2;
                         listOfSessions[inactiveSession].active = 1;
                         listOfSessions[inactiveSession].numberOfUsers = 1;
                         listOfSessions[inactiveSession].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 1;
 
-                        printf("Session Created:\n");
+                        printf("User \"%s\" Created Session \"%s\"\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, clientMessage.data);
 
                         sprintf(controlMessage, "%d", NS_ACK);
                         numByteSent = formatPacket(NS_ACK, strlen(controlMessage), "Server", controlMessage, buffer);
@@ -433,7 +436,7 @@ int main(int argc, char *argv[]) {
                   }
                   else if (findSessionWithNameReturn != -1) {
 
-                     printf("A Session With The Same Name Already Exists:\n");
+                     printf("A Session With The Name \"%s\" Already Exists:\n", clientMessage.data);
 
                      strcpy(controlMessage, "SESSION_WITH_SAME_NAME");
                      numByteSent = formatPacket(NS_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
