@@ -66,6 +66,7 @@ struct session {
    int UserIndexSessionLookup[NUMBER_OF_USERS];
 };
 
+void leaveSession(int sockfd);
 int findSessionIndexWithSockfd(int sockfd);
 int findSessionIndexWithName(char* sessionName);
 int findInactiveSession();
@@ -73,6 +74,8 @@ int findUserIndexWithSockfd(int sockfd);
 int usernamePasswordCheck(unsigned char* username, unsigned char* password);
 void deconstructPacket(unsigned char* formattedPacket, struct message* clientMessage);
 int formatPacket(unsigned int type, unsigned int size, unsigned char* source, unsigned char* data, unsigned char* formattedPacket);
+
+int noSessionList[NUMBER_OF_USERS];
 
 struct user* listOfUsers[NUMBER_OF_USERS];
 struct session listOfSessions[NUMBER_OF_USERS];
@@ -97,7 +100,6 @@ int main(int argc, char *argv[]) {
    fd_set readerfd;
 
    int clientSocket[MAX_CLIENTS];
-   int noSessionList[NUMBER_OF_USERS];
 
    char* clientIP;
    char buffer[MAX_BUFFER_SIZE];
@@ -251,6 +253,8 @@ int main(int argc, char *argv[]) {
 
             if (numByteReceived == 0) {
 
+               leaveSession(currentSockfd);
+
                getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                clientIP = inet_ntoa(addressPortReader.sin_addr);
 
@@ -340,6 +344,8 @@ int main(int argc, char *argv[]) {
                }
                else if (clientMessage.type == EXIT) {
 
+                  leaveSession(currentSockfd);
+
                   getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                   clientIP = inet_ntoa(addressPortReader.sin_addr);
 
@@ -355,6 +361,8 @@ int main(int argc, char *argv[]) {
                   clientSocket[i] = 0;
                }
                else if (clientMessage.type == JOIN) {
+
+                  leaveSession(currentSockfd);
 
                   findSessionWithNameReturn = findSessionIndexWithName(clientMessage.data);
 
@@ -383,9 +391,12 @@ int main(int argc, char *argv[]) {
                }
                else if (clientMessage.type == LEAVE_SESS) {
 
+                  leaveSession(currentSockfd);
                }
                else if (clientMessage.type == NEW_SESS) {
                
+                  leaveSession(currentSockfd);
+
                   findSessionWithNameReturn = findSessionIndexWithName(clientMessage.data);
 
                   if (findSessionWithNameReturn == -1) {
@@ -442,8 +453,6 @@ int main(int argc, char *argv[]) {
                         if (firstIteration == 0) {
 
                            firstIteration = 1;
-                           
-                           //printf("------------------------------\n");
                         };
                         
                         strcat(packetData, listOfSessions[i].sessionName);
@@ -457,26 +466,12 @@ int main(int argc, char *argv[]) {
 
                               strcat(packetData, listOfUsers[j]->username);
                               strcat(packetData, ",");
-
-                              //printf("%s ", listOfUsers[j]->username);
                            }
                         }
                         
                         strcat(packetData, "\n");
-
-                        //printf("\n------------------------------\n");
                      }
                   }
-
-                  //printf("%s\n", packetData);
-
-                  /////////////////////////////////
-                  //for(int TEST = 0; TEST < NUMBER_OF_USERS; TEST++) {
-
-                  //   printf("%d | ", noSessionList[TEST]);
-                  //}
-                  //printf("\n");
-                  /////////////////////////////////
                   
                   inSessionCount = 0;
 
@@ -493,7 +488,7 @@ int main(int argc, char *argv[]) {
 
                   if (inSessionCount > 0) {
 
-                     strcat(packetData, "Online But Not In Session|");
+                     strcat(packetData, "Online/Not In Session|");
                      strcat(packetData, queryBuilder);
                      strcat(packetData, "\n");
                   }
@@ -527,6 +522,27 @@ int main(int argc, char *argv[]) {
    }
 
    return 0;
+}
+
+void leaveSession(int sockfd) {
+
+   int findSessionIndexWithSockfdReturn = 0;
+
+   findSessionIndexWithSockfdReturn = findSessionIndexWithSockfd(sockfd);
+
+   if (findSessionIndexWithSockfdReturn != -1) {
+
+      listOfSessions[findSessionIndexWithSockfdReturn].UserIndexSessionLookup[findUserIndexWithSockfd(sockfd)] = 0;
+      listOfSessions[findSessionIndexWithSockfdReturn].numberOfUsers -= 1;
+
+      if (listOfSessions[findSessionIndexWithSockfdReturn].numberOfUsers == 0) {
+
+         memset(listOfSessions[findSessionIndexWithSockfdReturn].sessionName, 0, MAX_NAME * sizeof(char));
+         listOfSessions[findSessionIndexWithSockfdReturn].active = 0;
+      }
+   }
+
+   noSessionList[findUserIndexWithSockfd(sockfd)] = 1;
 }
 
 int findSessionIndexWithSockfd(int sockfd) {

@@ -13,7 +13,6 @@
 
 #define MAX_HEADER_UNIT_SIZE 20
 #define MAX_COMMAND_SIZE 100
-#define INPUT_BUFFER_SIZE 200
 #define MAX_HEADER_BUILDER_SIZE 200
 #define MAX_HEADER_EXTRACTOR_SIZE 200
 #define MAX_CONTROL_MESSAGE_SIZE 200
@@ -63,6 +62,8 @@ int main() {
    int numByteReceived = 0;
    int loggedIn = 0;
    int validCommand = 1;
+   int inSession = 0;
+   int clearCommandCheck = 0;
       
    char enterCheck = 0;
 
@@ -107,7 +108,7 @@ int main() {
    int stdinfd = 0;
    int processed = 0;
 
-   char inputBuffer[INPUT_BUFFER_SIZE];
+   char inputBuffer[MAX_DATA];
    ////////////////////////////////////////////////////
 
    stdinfd = fileno(stdin);
@@ -126,6 +127,12 @@ int main() {
                printf("Exiting Program\n");
                return 0;
             }
+            else if (strcmp(commandString, "/clear") == 0) {
+
+               clearCommandCheck = 1;
+
+               system("clear");
+            }
 
             enterCheck = 0;
 
@@ -140,7 +147,17 @@ int main() {
                   scanf("%c", &enterCheck);
                }
                
-               printf("Try Entering: /login <Client ID> <Password> <Server-IP> <Server-Port>\n");
+               if (clearCommandCheck == 0) {
+                  
+                  printf("Try Entering: /login <Client ID> <Password> <Server-IP> <Server-Port>\n");
+               }
+               else if (clearCommandCheck == 1) {
+
+                  clearCommandCheck = 0;
+
+                  printf("Please Login:\n");
+               }
+
                scanf("%s", commandString);
             }
          }
@@ -173,7 +190,8 @@ int main() {
 
          if (serverMessage.type == LO_ACK) {
 
-            printf("Valid:\n");
+            printf("Please Enter A Command:\n");
+
             memset(commandString, 0, MAX_COMMAND_SIZE * sizeof(char));
             loggedIn = 1;
          }
@@ -210,13 +228,7 @@ int main() {
 
                processed = 1;
 
-               if (validCommand == 1) {
-                  
-                  printf("Please Enter A Command:\n");
-               }
-
                sscanf(inputBuffer, "%s", commandString);
-               //scanf("%s", commandString);
 
                if (strcmp(commandString, "/logout") == 0) {
 
@@ -233,9 +245,7 @@ int main() {
                   
                   validCommand = 1;
 
-                  strchr(inputBuffer, ' ');
                   sscanf(strchr(inputBuffer, ' '), "%s", sessionID);
-                  //scanf("%s", sessionID);
 
                   strcpy(packetData, sessionID);
                   numByteSent = formatPacket(JOIN, strlen(packetData), inputClientID, packetData, buffer);
@@ -245,13 +255,21 @@ int main() {
                else if (strcmp(commandString, "/leavesession") == 0) {
 
                   validCommand = 1;
+
+                  inSession = 0;
+
+                  sprintf(controlMessage, "%d", LEAVE_SESS);
+                  numByteSent = formatPacket(LEAVE_SESS, strlen(controlMessage), inputClientID, controlMessage, buffer);
+
+                  write(sockfd, buffer, numByteSent);
+
+                  printf("Please Enter A Command:\n");
                }
                else if (strcmp(commandString, "/createsession") == 0) {
 
                   validCommand = 1;
 
                   sscanf(strchr(inputBuffer, ' '), "%s", sessionID);
-                  //scanf("%s", sessionID);
 
                   strcpy(packetData, sessionID);
                   numByteSent = formatPacket(NEW_SESS, strlen(packetData), inputClientID, packetData, buffer);
@@ -272,45 +290,73 @@ int main() {
                   printf("Exiting Program\n");
                   return 0;
                }
+               else if (strcmp(commandString, "/clear") == 0) {
+
+                  system("clear");
+
+                  if (inSession == 1) {
+
+                     printf("%s: ", inputClientID);
+                  }
+                  else if (inSession == 0) {
+
+                     printf("Please Enter A Command:\n");
+                  }
+               }
                else if (commandString[0] == '/') {
 
                   validCommand = 0;
 
                   printf("Please Enter A Valid Command:\n");
+
+                  if (inSession == 1) {
+
+                     printf("%s: ", inputClientID);
+                  }
                }
-               else {
+               else if (strcmp(commandString, "") != 0) {
 
-                  validCommand = 0;
+                  validCommand = 1;
 
-                  strcpy(packetData, inputBuffer);
-                  numByteSent = formatPacket(MESSAGE, strlen(inputBuffer), inputClientID, inputBuffer, buffer);
+                  if (inSession == 1) {
+                     
+                     strcpy(packetData, inputBuffer);
+                     numByteSent = formatPacket(MESSAGE, strlen(inputBuffer), inputClientID, inputBuffer, buffer);
 
-                  write(sockfd, buffer, numByteSent);
+                     write(sockfd, buffer, numByteSent);
+
+                     printf("%s: ", inputClientID);
+                  }
+                  else if (inSession == 0) {
+
+                     printf("Please Enter A Command:\n");
+                  }
                }
             }
-
-            //enterCheck = 0;
-
-            //while(enterCheck != '\n') {
-                     
-            //   scanf("%c", &enterCheck);
-            //}
 
             FD_ZERO(&socketReaderfd);
             FD_SET(sockfd, &socketReaderfd);
 
             select(sockfd + 1, &socketReaderfd, NULL, NULL, &tv);
 
-            //setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt));
-
             if (FD_ISSET(sockfd, &socketReaderfd)) {
 
                numByteReceived = read(sockfd, buffer, MAX_BUFFER_SIZE);
                deconstructPacket(buffer, &serverMessage);
 
+               if (numByteReceived == 0) {
+
+                  printf("Server Disconnected: Exiting Program\n");
+                  return 0;
+               }
+
                if (serverMessage.type == JN_ACK) {
 
+                  inSession = 1;
+
                   printf("Joined Session:\n");
+
+                  printf("%s: ", inputClientID);
                }
                else if (serverMessage.type == JN_NAK) {
 
@@ -318,7 +364,11 @@ int main() {
                }
                else if (serverMessage.type == NS_ACK) {
 
+                  inSession = 1;
+
                   printf("Session Created:\n");
+
+                  printf("%s: ", inputClientID);
                }
                else if (serverMessage.type == NS_NAK) {
 
@@ -333,22 +383,37 @@ int main() {
                }
                else if (serverMessage.type == QU_ACK) {
 
+                  printf("---------- List ----------\n");
+
                   printList(serverMessage.data, serverMessage.size);
+
+                  printf("--------------------------\n");
+
+                  if (inSession == 0) {
+                     
+                     printf("Please Enter A Command:\n");
+                  }
+                  else if (inSession == 1) {
+
+                     printf("%s: ", inputClientID);
+                  }
                }
                else if (serverMessage.type == MESSAGE) {
 
-                  printf("%s: %s", serverMessage.source, serverMessage.data);
+                  printf("\33[2K\r");
+
+                  printf("\r%s: %s", serverMessage.source, serverMessage.data);
+
+                  printf("%s: ", inputClientID);
                }
             }
          }
          else if (selectReturn != 0) {
 
-            memset(inputBuffer, 0, INPUT_BUFFER_SIZE * sizeof(char));
-            //memset(commandString, 0, MAX_COMMAND_SIZE * sizeof(char));
+            memset(inputBuffer, 0, MAX_DATA * sizeof(char));
+            memset(commandString, 0, MAX_COMMAND_SIZE * sizeof(char));
 
-            read(stdinfd, inputBuffer, INPUT_BUFFER_SIZE);
-
-            sscanf(inputBuffer, "%s %s", commandString, sessionID);
+            read(stdinfd, inputBuffer, MAX_DATA);
 
             processed = 0;
          }
@@ -368,7 +433,10 @@ void printList(char* packetData, int packetSize) {
       }
       else if (packetData[i] == ',') {
 
-         printf(" ");
+         if (packetData[i + 1] != '\n') {
+            
+            printf(", ");
+         }
       }
       else {
 
