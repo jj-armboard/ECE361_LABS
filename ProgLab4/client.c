@@ -47,6 +47,7 @@ struct message {
    unsigned char data[MAX_DATA];
 };
 
+void printList(char* packetData, int packetSize);
 void deconstructPacket(unsigned char* formattedPacket, struct message* clientMessage);
 int formatPacket(unsigned int type, unsigned int size, unsigned char* source, unsigned char* data, unsigned char* buffer);
 
@@ -92,6 +93,18 @@ int main() {
    serverInfo.ai_next = NULL;
 
    addressLength = sizeof(serverInfoPtr->ai_addr);
+
+   ////////////////////////////////////////////////////
+   fd_set readerfd;
+   
+   // Clear socket set
+   FD_ZERO(&readerfd);
+
+   // Add master socket to set 
+   FD_SET(sockfd, &readerfd);
+
+   //select(sockfd, &readerfd, NULL, NULL, NULL);
+   ////////////////////////////////////////////////////
 
    while (1) {
 
@@ -187,7 +200,7 @@ int main() {
             validCommand = 1;
 
             sprintf(controlMessage, "%d", EXIT);
-            numByteSent = formatPacket(EXIT, strlen(controlMessage), "Server", controlMessage, buffer);
+            numByteSent = formatPacket(EXIT, strlen(controlMessage), inputClientID, controlMessage, buffer);
 
             write(sockfd, buffer, numByteSent);
 
@@ -196,6 +209,13 @@ int main() {
          else if (strcmp(commandString, "/joinsession") == 0) {
             
             validCommand = 1;
+
+            scanf("%s", sessionID);
+
+            strcpy(packetData, sessionID);
+            numByteSent = formatPacket(JOIN, strlen(packetData), inputClientID, packetData, buffer);
+
+            write(sockfd, buffer, numByteSent);
          }
          else if (strcmp(commandString, "/leavesession") == 0) {
 
@@ -215,6 +235,11 @@ int main() {
          else if (strcmp(commandString, "/list") == 0) {
 
             validCommand = 1;
+
+            sprintf(controlMessage, "%d", QUERY);
+            numByteSent = formatPacket(QUERY, strlen(controlMessage), inputClientID, controlMessage, buffer);
+
+            write(sockfd, buffer, numByteSent);
          }
          else if (strcmp(commandString, "/quit") == 0) {
 
@@ -231,7 +256,10 @@ int main() {
 
             validCommand = 1;
 
-            printf("<Text>\n");
+            strcpy(packetData, commandString);
+            numByteSent = formatPacket(MESSAGE, strlen(packetData), inputClientID, packetData, buffer);
+
+            write(sockfd, buffer, numByteSent);
          }
 
          enterCheck = 0;
@@ -241,14 +269,19 @@ int main() {
             scanf("%c", &enterCheck);
          }
 
-         numByteReceived = read(sockfd, buffer, MAX_BUFFER_SIZE);
-         deconstructPacket(buffer, &serverMessage);
+         //if (FD_ISSET(sockfd, &readerfd)) {
+            
+            numByteReceived = read(sockfd, buffer, MAX_BUFFER_SIZE);
+            deconstructPacket(buffer, &serverMessage);
+         //}
 
          if (serverMessage.type == JN_ACK) {
 
+            printf("Joined Session:\n");
          }
          else if (serverMessage.type == JN_NAK) {
 
+            printf("Session Does Not Exist:\n");
          }
          else if (serverMessage.type == NS_ACK) {
 
@@ -267,14 +300,35 @@ int main() {
          }
          else if (serverMessage.type == QU_ACK) {
 
+            printList(serverMessage.data, serverMessage.size);
          }
          else if (serverMessage.type == MESSAGE) {
 
+            printf("%s\n", serverMessage.data);
          }
       }
    }
 
    return 0;
+}
+
+void printList(char* packetData, int packetSize) {
+
+   for (int i = 0; i <  packetSize; i++) {
+
+      if (packetData[i] == '|') {
+         
+         printf(": ");
+      }
+      else if (packetData[i] == ',') {
+
+         printf(" ");
+      }
+      else {
+
+         printf("%c", packetData[i]);
+      }
+   }
 }
 
 void deconstructPacket(unsigned char* formattedPacket, struct message* clientMessage) {
@@ -285,10 +339,10 @@ void deconstructPacket(unsigned char* formattedPacket, struct message* clientMes
 
    clientMessage->type = 0;
    clientMessage->size = 0;
-   memset(clientMessage->source , 0, MAX_NAME);
-   memset(clientMessage->data, 0, MAX_DATA);
+   memset(clientMessage->source , 0, MAX_NAME * sizeof(char));
+   memset(clientMessage->data, 0, MAX_DATA * sizeof(char));
 
-   memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE);
+   memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE * sizeof(char));
 
    for (int i = 0; ; i++) {
 
@@ -306,7 +360,7 @@ void deconstructPacket(unsigned char* formattedPacket, struct message* clientMes
 
    charCount = strlen(headerExtractor) + 1;
 
-   memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE);
+   memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE * sizeof(char));
 
    for (int i = 0; ; i++) {
 
@@ -324,7 +378,7 @@ void deconstructPacket(unsigned char* formattedPacket, struct message* clientMes
 
    charCount = charCount + strlen(headerExtractor) + 1;
 
-	memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE);
+	memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE * sizeof(char));
 
    for (int i = 0; ; i++) {
 

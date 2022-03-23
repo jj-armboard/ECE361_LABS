@@ -59,16 +59,17 @@ struct user {
 
 struct session {
 
-   char name[MAX_NAME];
+   char sessionName[MAX_NAME];
 
    int active;
    int numberOfUsers;
    int UserIndexSessionLookup[NUMBER_OF_USERS];
 };
 
-int findSessionWithName(char* sessionName);
+int findSessionIndexWithSockfd(int sockfd);
+int findSessionIndexWithName(char* sessionName);
 int findInactiveSession();
-int findUserIndex(int sockfd);
+int findUserIndexWithSockfd(int sockfd);
 int usernamePasswordCheck(unsigned char* username, unsigned char* password);
 void deconstructPacket(unsigned char* formattedPacket, struct message* clientMessage);
 int formatPacket(unsigned int type, unsigned int size, unsigned char* source, unsigned char* data, unsigned char* formattedPacket);
@@ -89,14 +90,20 @@ int main(int argc, char *argv[]) {
    int addressPortReaderSize = 0;
    int inactiveSession = 0;
    int findSessionWithNameReturn = 0;
+   int firstIteration = 0;
+   int inSessionCount = 0;
+   int sessionIndex = 0;
 
    fd_set readerfd;
 
    int clientSocket[MAX_CLIENTS];
+   int noSessionList[NUMBER_OF_USERS];
 
    char* clientIP;
    char buffer[MAX_BUFFER_SIZE];
    char controlMessage[MAX_CONTROL_MESSAGE_SIZE];
+   char packetData[MAX_DATA];
+   char queryBuilder[MAX_HEADER_BUILDER_SIZE];
 
    struct addrinfo serverInfo;
    struct addrinfo* serverInfoPtr;
@@ -145,12 +152,14 @@ int main(int argc, char *argv[]) {
 
    for (int i = 0; i < NUMBER_OF_USERS; i++) {
 
-      memset(listOfSessions[i].name, 0, MAX_NAME);
-      memset(listOfSessions[i].UserIndexSessionLookup, 0, NUMBER_OF_USERS);
+      memset(listOfSessions[i].sessionName, 0, MAX_NAME * sizeof(char));
+      memset(listOfSessions[i].UserIndexSessionLookup, 0, NUMBER_OF_USERS * sizeof(int));
 
       listOfSessions[i].active = 0;
       listOfSessions[i].numberOfUsers = 0;
    }
+
+   memset(noSessionList, 0, NUMBER_OF_USERS * sizeof(int));
 
    // Initialize serverInfo
    serverInfo.ai_flags = AI_PASSIVE;
@@ -245,8 +254,10 @@ int main(int argc, char *argv[]) {
                getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                clientIP = inet_ntoa(addressPortReader.sin_addr);
 
-               listOfUsers[findUserIndex(currentSockfd)]->loggedIn = 0;
-               listOfUsers[findUserIndex(currentSockfd)]->sockfd = -1;
+               noSessionList[findUserIndexWithSockfd(currentSockfd)] = 0;
+               listOfUsers[findUserIndexWithSockfd(currentSockfd)]->loggedIn = 0;
+               listOfSessions[findSessionIndexWithSockfd(currentSockfd)].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 0;
+               listOfUsers[findUserIndexWithSockfd(currentSockfd)]->sockfd = -1;
 
                printf("Client Disconnected IP: %s\n", clientIP);
 
@@ -300,6 +311,7 @@ int main(int argc, char *argv[]) {
 
                         listOfUsers[usernamePasswordReturn]->loggedIn = 1;
                         listOfUsers[usernamePasswordReturn]->sockfd = currentSockfd;
+                        noSessionList[findUserIndexWithSockfd(currentSockfd)] = 1;
 
                         sprintf(controlMessage, "%d", VALID);
                         numByteSent = formatPacket(LO_ACK, strlen(controlMessage), "Server", controlMessage, buffer);
@@ -331,8 +343,10 @@ int main(int argc, char *argv[]) {
                   getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                   clientIP = inet_ntoa(addressPortReader.sin_addr);
 
-                  listOfUsers[findUserIndex(currentSockfd)]->loggedIn = 0;
-                  listOfUsers[findUserIndex(currentSockfd)]->sockfd = -1;
+                  noSessionList[findUserIndexWithSockfd(currentSockfd)] = 0;
+                  listOfUsers[findUserIndexWithSockfd(currentSockfd)]->loggedIn = 0;
+                  listOfSessions[findSessionIndexWithSockfd(currentSockfd)].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 0;
+                  listOfUsers[findUserIndexWithSockfd(currentSockfd)]->sockfd = -1;
 
                   printf("Client Logged Out IP: %s\n", clientIP);
 
@@ -342,13 +356,37 @@ int main(int argc, char *argv[]) {
                }
                else if (clientMessage.type == JOIN) {
 
+                  findSessionWithNameReturn = findSessionIndexWithName(clientMessage.data);
+
+                  if (findSessionWithNameReturn != -1) {
+                     
+                     noSessionList[findUserIndexWithSockfd(currentSockfd)] = 2;
+                     listOfSessions[findSessionWithNameReturn].numberOfUsers += 1;
+                     listOfSessions[findSessionWithNameReturn].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 1;
+
+                     printf("Client \"%s\" Joined Session \"%s\"\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, listOfSessions[findSessionWithNameReturn].sessionName);
+                  
+                     sprintf(controlMessage, "%d", JN_ACK);
+                     numByteSent = formatPacket(JN_ACK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                     write(currentSockfd, buffer, numByteSent);
+                  }
+                  else if (findSessionWithNameReturn == -1) {
+                     
+                     printf("No Session With The Name \"%s\" Exists\n", clientMessage.data);
+                  
+                     sprintf(controlMessage, "%d", JN_NAK);
+                     numByteSent = formatPacket(JN_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                     write(currentSockfd, buffer, numByteSent);
+                  }
                }
                else if (clientMessage.type == LEAVE_SESS) {
 
                }
                else if (clientMessage.type == NEW_SESS) {
                
-                  findSessionWithNameReturn = findSessionWithName(clientMessage.data);
+                  findSessionWithNameReturn = findSessionIndexWithName(clientMessage.data);
 
                   if (findSessionWithNameReturn == -1) {
 
@@ -356,11 +394,14 @@ int main(int argc, char *argv[]) {
 
                      if (inactiveSession != -1) {
 
-                        strcpy(listOfSessions[inactiveSession].name, clientMessage.data);
+                        strcpy(listOfSessions[inactiveSession].sessionName, clientMessage.data);
 
+                        //printf("currentSockfd = %d | findUserIndexWithSockfd(currentSockfd) = %d\n", currentSockfd, findUserIndexWithSockfd(currentSockfd));
+
+                        noSessionList[findUserIndexWithSockfd(currentSockfd)] = 2;
                         listOfSessions[inactiveSession].active = 1;
                         listOfSessions[inactiveSession].numberOfUsers = 1;
-                        listOfSessions[inactiveSession].UserIndexSessionLookup[findUserIndex(currentSockfd)] = 1;
+                        listOfSessions[inactiveSession].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 1;
 
                         printf("Session Created:\n");
 
@@ -391,9 +432,91 @@ int main(int argc, char *argv[]) {
                }
                else if (clientMessage.type == QUERY) {
 
+                  memset(queryBuilder, 0, MAX_HEADER_BUILDER_SIZE * sizeof(char));
+                  memset(packetData, 0, MAX_DATA * sizeof(char));
+
+                  for (int i = 0; i < NUMBER_OF_USERS; i++) {
+
+                     if (listOfSessions[i].active == 1) {
+
+                        if (firstIteration == 0) {
+
+                           firstIteration = 1;
+                           
+                           //printf("------------------------------\n");
+                        };
+                        
+                        strcat(packetData, listOfSessions[i].sessionName);
+                        strcat(packetData, "|");
+
+                        printf("%s: ", listOfSessions[i].sessionName);
+
+                        for (int j = 0; j < NUMBER_OF_USERS; j++) {
+
+                           if (listOfSessions[i].UserIndexSessionLookup[j] == 1) {
+
+                              strcat(packetData, listOfUsers[j]->username);
+                              strcat(packetData, ",");
+
+                              //printf("%s ", listOfUsers[j]->username);
+                           }
+                        }
+                        
+                        strcat(packetData, "\n");
+
+                        //printf("\n------------------------------\n");
+                     }
+                  }
+
+                  //printf("%s\n", packetData);
+
+                  /////////////////////////////////
+                  //for(int TEST = 0; TEST < NUMBER_OF_USERS; TEST++) {
+
+                  //   printf("%d | ", noSessionList[TEST]);
+                  //}
+                  //printf("\n");
+                  /////////////////////////////////
+                  
+                  inSessionCount = 0;
+
+                  for (int i = 0; i < NUMBER_OF_USERS; i++) {
+
+                     if(noSessionList[i] == 1) {
+
+                        strcat(queryBuilder, listOfUsers[i]->username);
+                        strcat(queryBuilder, ",");
+
+                        inSessionCount += 1;
+                     }
+                  }
+
+                  if (inSessionCount > 0) {
+
+                     strcat(packetData, "Online But Not In Session|");
+                     strcat(packetData, queryBuilder);
+                     strcat(packetData, "\n");
+                  }
+
+                  firstIteration = 0;
+
+                  numByteSent = formatPacket(QU_ACK, strlen(packetData), "Server", packetData, buffer);
+                  
+                  write(currentSockfd, buffer, numByteSent);
                }
                else if (clientMessage.type == MESSAGE) {
 
+                  sessionIndex = findSessionIndexWithSockfd(currentSockfd);
+
+                  numByteSent = formatPacket(MESSAGE, strlen(clientMessage.data), "Server", clientMessage.data, buffer);
+
+                  for (int i = 0; i < NUMBER_OF_USERS; i++) {
+
+                     if(listOfSessions[sessionIndex].UserIndexSessionLookup[i] == 1) {
+
+                        write(listOfUsers[i]->sockfd, buffer, numByteSent);
+                     }
+                  }
                }
             }
          }
@@ -403,11 +526,28 @@ int main(int argc, char *argv[]) {
    return 0;
 }
 
-int findSessionWithName(char* sessionName) {
+int findSessionIndexWithSockfd(int sockfd) {
+
+   int findUserIndexWithSockfdReturn = 0;
+
+   findUserIndexWithSockfdReturn = findUserIndexWithSockfd(sockfd);
 
    for (int i = 0; i < NUMBER_OF_USERS; i++) {
 
-      if(strcmp(listOfSessions[i].name, sessionName) == 0) {
+      if(listOfSessions[i].UserIndexSessionLookup[findUserIndexWithSockfdReturn] == 1) {
+
+         return i;
+      }
+   }
+
+   return -1;
+}
+
+int findSessionIndexWithName(char* sessionName) {
+
+   for (int i = 0; i < NUMBER_OF_USERS; i++) {
+
+      if((strcmp(listOfSessions[i].sessionName, sessionName) == 0) && (listOfSessions[i].active == 1)) {
 
          return i;
       }
@@ -429,7 +569,7 @@ int findInactiveSession() {
    return -1;
 }
 
-int findUserIndex(int sockfd) {
+int findUserIndexWithSockfd(int sockfd) {
 
    for (int i = 0; i < NUMBER_OF_USERS; i++) {
 
@@ -438,6 +578,8 @@ int findUserIndex(int sockfd) {
          return i;
       }
    }
+
+   return -1;
 }
 
 int usernamePasswordCheck(unsigned char* username, unsigned char* password) {
@@ -487,10 +629,10 @@ void deconstructPacket(unsigned char* formattedPacket, struct message* clientMes
 
    clientMessage->type = 0;
    clientMessage->size = 0;
-   memset(clientMessage->source , 0, MAX_NAME);
-   memset(clientMessage->data, 0, MAX_DATA);
+   memset(clientMessage->source , 0, MAX_NAME * sizeof(char));
+   memset(clientMessage->data, 0, MAX_DATA * sizeof(char));
 
-   memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE);
+   memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE * sizeof(char));
 
    for (int i = 0; ; i++) {
 
@@ -508,7 +650,7 @@ void deconstructPacket(unsigned char* formattedPacket, struct message* clientMes
 
    charCount = strlen(headerExtractor) + 1;
 
-   memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE);
+   memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE * sizeof(char));
 
    for (int i = 0; ; i++) {
 
@@ -526,7 +668,7 @@ void deconstructPacket(unsigned char* formattedPacket, struct message* clientMes
 
    charCount = charCount + strlen(headerExtractor) + 1;
 
-	memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE);
+	memset(headerExtractor, 0, MAX_HEADER_EXTRACTOR_SIZE * sizeof(char));
 
    for (int i = 0; ; i++) {
 
