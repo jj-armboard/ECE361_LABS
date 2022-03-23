@@ -65,6 +65,9 @@ int main() {
    int inSession = 0;
    int clearCommandCheck = 0;
    int sscanfReturn = 0;
+   int selectReturn = 0;
+   int stdinfd = 0;
+   int processed = 0;
       
    char enterCheck = 0;
 
@@ -78,13 +81,18 @@ int main() {
    char controlMessage[MAX_CONTROL_MESSAGE_SIZE];
    char packetData[MAX_BUFFER_SIZE];
    char sessionID[MAX_NAME];
+   char inputBuffer[MAX_DATA];
 
    struct addrinfo serverInfo;
    struct addrinfo* serverInfoPtr;
    struct sockaddr_storage senderInfo;
    struct message serverMessage;
+   struct timeval tv;
 
    socklen_t addressLength;
+
+   fd_set IOreaderfd;
+   fd_set socketReaderfd;
 
    // Initialize serverInfo
    serverInfo.ai_flags = AI_PASSIVE;
@@ -98,19 +106,6 @@ int main() {
    serverInfo.ai_next = NULL;
 
    addressLength = sizeof(serverInfoPtr->ai_addr);
-
-   ////////////////////////////////////////////////////
-   struct timeval tv;
-   
-   fd_set readerfd;
-   fd_set socketReaderfd;
-
-   int selectReturn = 0;
-   int stdinfd = 0;
-   int processed = 0;
-
-   char inputBuffer[MAX_DATA];
-   ////////////////////////////////////////////////////
 
    stdinfd = fileno(stdin);
 
@@ -214,14 +209,19 @@ int main() {
       }
       else if (loggedIn == 1) {
 
-         FD_ZERO(&readerfd);
-         FD_SET(fileno(stdin), &readerfd);
+         FD_ZERO(&IOreaderfd);
+         FD_SET(fileno(stdin), &IOreaderfd);
+
+         FD_ZERO(&socketReaderfd);
+         FD_SET(sockfd, &socketReaderfd);
 
          tv.tv_sec = 0;
          tv.tv_usec = 1000;
 
          fflush(stdout);
-         selectReturn = select(stdinfd + 1, &readerfd, NULL, NULL, &tv);
+
+         selectReturn = select(stdinfd + 1, &IOreaderfd, NULL, NULL, &tv);
+         select(sockfd + 1, &socketReaderfd, NULL, NULL, &tv);
 
          if (selectReturn == 0) {
 
@@ -362,11 +362,6 @@ int main() {
                   }
                }
             }
-
-            FD_ZERO(&socketReaderfd);
-            FD_SET(sockfd, &socketReaderfd);
-
-            select(sockfd + 1, &socketReaderfd, NULL, NULL, &tv);
 
             if (FD_ISSET(sockfd, &socketReaderfd)) {
 
