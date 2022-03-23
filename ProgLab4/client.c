@@ -7,10 +7,13 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/select.h>
+#include <sys/time.h>
 #include <math.h>
 
 #define MAX_HEADER_UNIT_SIZE 20
 #define MAX_COMMAND_SIZE 100
+#define INPUT_BUFFER_SIZE 200
 #define MAX_HEADER_BUILDER_SIZE 200
 #define MAX_HEADER_EXTRACTOR_SIZE 200
 #define MAX_CONTROL_MESSAGE_SIZE 200
@@ -95,16 +98,19 @@ int main() {
    addressLength = sizeof(serverInfoPtr->ai_addr);
 
    ////////////////////////////////////////////////////
-   fd_set readerfd;
+   struct timeval tv;
    
-   // Clear socket set
-   FD_ZERO(&readerfd);
+   fd_set readerfd;
+   fd_set socketReaderfd;
 
-   // Add master socket to set 
-   FD_SET(sockfd, &readerfd);
+   int selectReturn = 0;
+   int stdinfd = 0;
+   int processed = 0;
 
-   //select(sockfd, &readerfd, NULL, NULL, NULL);
+   char inputBuffer[INPUT_BUFFER_SIZE];
    ////////////////////////////////////////////////////
+
+   stdinfd = fileno(stdin);
 
    while (1) {
 
@@ -168,6 +174,7 @@ int main() {
          if (serverMessage.type == LO_ACK) {
 
             printf("Valid:\n");
+            memset(commandString, 0, MAX_COMMAND_SIZE * sizeof(char));
             loggedIn = 1;
          }
          else if (serverMessage.type == LO_NAK) {
@@ -188,123 +195,162 @@ int main() {
       }
       else if (loggedIn == 1) {
 
-         if (validCommand == 1) {
-            
-            printf("Please Enter A Command:\n");
-         }
+         FD_ZERO(&readerfd);
+         FD_SET(fileno(stdin), &readerfd);
 
-         scanf("%s", commandString);
+         tv.tv_sec = 0;
+         tv.tv_usec = 1000;
 
-         if (strcmp(commandString, "/logout") == 0) {
+         fflush(stdout);
+         selectReturn = select(stdinfd + 1, &readerfd, NULL, NULL, &tv);
 
-            validCommand = 1;
+         if (selectReturn == 0) {
 
-            sprintf(controlMessage, "%d", EXIT);
-            numByteSent = formatPacket(EXIT, strlen(controlMessage), inputClientID, controlMessage, buffer);
+            if (processed == 0) {
 
-            write(sockfd, buffer, numByteSent);
+               processed = 1;
 
-            loggedIn = 0;
-         }
-         else if (strcmp(commandString, "/joinsession") == 0) {
-            
-            validCommand = 1;
-
-            scanf("%s", sessionID);
-
-            strcpy(packetData, sessionID);
-            numByteSent = formatPacket(JOIN, strlen(packetData), inputClientID, packetData, buffer);
-
-            write(sockfd, buffer, numByteSent);
-         }
-         else if (strcmp(commandString, "/leavesession") == 0) {
-
-            validCommand = 1;
-         }
-         else if (strcmp(commandString, "/createsession") == 0) {
-
-            validCommand = 1;
-
-            scanf("%s", sessionID);
-
-            strcpy(packetData, sessionID);
-            numByteSent = formatPacket(NEW_SESS, strlen(packetData), inputClientID, packetData, buffer);
-
-            write(sockfd, buffer, numByteSent);
-         }
-         else if (strcmp(commandString, "/list") == 0) {
-
-            validCommand = 1;
-
-            sprintf(controlMessage, "%d", QUERY);
-            numByteSent = formatPacket(QUERY, strlen(controlMessage), inputClientID, controlMessage, buffer);
-
-            write(sockfd, buffer, numByteSent);
-         }
-         else if (strcmp(commandString, "/quit") == 0) {
-
-            printf("Exiting Program\n");
-            return 0;
-         }
-         else if (commandString[0] == '/') {
-
-            validCommand = 0;
-
-            printf("Please Enter A Valid Command:\n");
-         }
-         else {
-
-            validCommand = 1;
-
-            strcpy(packetData, commandString);
-            numByteSent = formatPacket(MESSAGE, strlen(packetData), inputClientID, packetData, buffer);
-
-            write(sockfd, buffer, numByteSent);
-         }
-
-         enterCheck = 0;
-
-         while(enterCheck != '\n') {
+               if (validCommand == 1) {
                   
-            scanf("%c", &enterCheck);
-         }
+                  printf("Please Enter A Command:\n");
+               }
 
-         //if (FD_ISSET(sockfd, &readerfd)) {
-            
-            numByteReceived = read(sockfd, buffer, MAX_BUFFER_SIZE);
-            deconstructPacket(buffer, &serverMessage);
-         //}
+               sscanf(inputBuffer, "%s", commandString);
+               //scanf("%s", commandString);
 
-         if (serverMessage.type == JN_ACK) {
+               if (strcmp(commandString, "/logout") == 0) {
 
-            printf("Joined Session:\n");
-         }
-         else if (serverMessage.type == JN_NAK) {
+                  validCommand = 1;
 
-            printf("Session Does Not Exist:\n");
-         }
-         else if (serverMessage.type == NS_ACK) {
+                  sprintf(controlMessage, "%d", EXIT);
+                  numByteSent = formatPacket(EXIT, strlen(controlMessage), inputClientID, controlMessage, buffer);
 
-            printf("Session Created:\n");
-         }
-         else if (serverMessage.type == NS_NAK) {
+                  write(sockfd, buffer, numByteSent);
 
-            if (strcmp(serverMessage.data, "MAX_SESSION_LIMIT_REACHED") == 0) {
+                  loggedIn = 0;
+               }
+               else if (strcmp(commandString, "/joinsession") == 0) {
+                  
+                  validCommand = 1;
 
-               printf("Maximum Session Limit Has Been Reached:\n");
+                  strchr(inputBuffer, ' ');
+                  sscanf(strchr(inputBuffer, ' '), "%s", sessionID);
+                  //scanf("%s", sessionID);
+
+                  strcpy(packetData, sessionID);
+                  numByteSent = formatPacket(JOIN, strlen(packetData), inputClientID, packetData, buffer);
+
+                  write(sockfd, buffer, numByteSent);
+               }
+               else if (strcmp(commandString, "/leavesession") == 0) {
+
+                  validCommand = 1;
+               }
+               else if (strcmp(commandString, "/createsession") == 0) {
+
+                  validCommand = 1;
+
+                  sscanf(strchr(inputBuffer, ' '), "%s", sessionID);
+                  //scanf("%s", sessionID);
+
+                  strcpy(packetData, sessionID);
+                  numByteSent = formatPacket(NEW_SESS, strlen(packetData), inputClientID, packetData, buffer);
+
+                  write(sockfd, buffer, numByteSent);
+               }
+               else if (strcmp(commandString, "/list") == 0) {
+
+                  validCommand = 1;
+
+                  sprintf(controlMessage, "%d", QUERY);
+                  numByteSent = formatPacket(QUERY, strlen(controlMessage), inputClientID, controlMessage, buffer);
+
+                  write(sockfd, buffer, numByteSent);
+               }
+               else if (strcmp(commandString, "/quit") == 0) {
+
+                  printf("Exiting Program\n");
+                  return 0;
+               }
+               else if (commandString[0] == '/') {
+
+                  validCommand = 0;
+
+                  printf("Please Enter A Valid Command:\n");
+               }
+               else {
+
+                  validCommand = 0;
+
+                  strcpy(packetData, inputBuffer);
+                  numByteSent = formatPacket(MESSAGE, strlen(inputBuffer), inputClientID, inputBuffer, buffer);
+
+                  write(sockfd, buffer, numByteSent);
+               }
             }
-            else if (strcmp(serverMessage.data, "SESSION_WITH_SAME_NAME") == 0) {
 
-               printf("A Session With The Same Name Already Exists:\n");
+            //enterCheck = 0;
+
+            //while(enterCheck != '\n') {
+                     
+            //   scanf("%c", &enterCheck);
+            //}
+
+            FD_ZERO(&socketReaderfd);
+            FD_SET(sockfd, &socketReaderfd);
+
+            select(sockfd + 1, &socketReaderfd, NULL, NULL, &tv);
+
+            //setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt));
+
+            if (FD_ISSET(sockfd, &socketReaderfd)) {
+
+               numByteReceived = read(sockfd, buffer, MAX_BUFFER_SIZE);
+               deconstructPacket(buffer, &serverMessage);
+
+               if (serverMessage.type == JN_ACK) {
+
+                  printf("Joined Session:\n");
+               }
+               else if (serverMessage.type == JN_NAK) {
+
+                  printf("Session Does Not Exist:\n");
+               }
+               else if (serverMessage.type == NS_ACK) {
+
+                  printf("Session Created:\n");
+               }
+               else if (serverMessage.type == NS_NAK) {
+
+                  if (strcmp(serverMessage.data, "MAX_SESSION_LIMIT_REACHED") == 0) {
+
+                     printf("Maximum Session Limit Has Been Reached:\n");
+                  }
+                  else if (strcmp(serverMessage.data, "SESSION_WITH_SAME_NAME") == 0) {
+
+                     printf("A Session With The Same Name Already Exists:\n");
+                  }
+               }
+               else if (serverMessage.type == QU_ACK) {
+
+                  printList(serverMessage.data, serverMessage.size);
+               }
+               else if (serverMessage.type == MESSAGE) {
+
+                  printf("%s: %s", serverMessage.source, serverMessage.data);
+               }
             }
          }
-         else if (serverMessage.type == QU_ACK) {
+         else if (selectReturn != 0) {
 
-            printList(serverMessage.data, serverMessage.size);
-         }
-         else if (serverMessage.type == MESSAGE) {
+            memset(inputBuffer, 0, INPUT_BUFFER_SIZE * sizeof(char));
+            //memset(commandString, 0, MAX_COMMAND_SIZE * sizeof(char));
 
-            printf("%s\n", serverMessage.data);
+            read(stdinfd, inputBuffer, INPUT_BUFFER_SIZE);
+
+            sscanf(inputBuffer, "%s %s", commandString, sessionID);
+
+            processed = 0;
          }
       }
    }

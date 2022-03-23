@@ -508,13 +508,16 @@ int main(int argc, char *argv[]) {
 
                   sessionIndex = findSessionIndexWithSockfd(currentSockfd);
 
-                  numByteSent = formatPacket(MESSAGE, strlen(clientMessage.data), "Server", clientMessage.data, buffer);
+                  numByteSent = formatPacket(MESSAGE, strlen(clientMessage.data), clientMessage.source, clientMessage.data, buffer);
 
                   for (int i = 0; i < NUMBER_OF_USERS; i++) {
 
                      if(listOfSessions[sessionIndex].UserIndexSessionLookup[i] == 1) {
 
-                        write(listOfUsers[i]->sockfd, buffer, numByteSent);
+                        if (currentSockfd != listOfUsers[i]->sockfd) {
+                           
+                           write(listOfUsers[i]->sockfd, buffer, numByteSent);
+                        }
                      }
                   }
                }
