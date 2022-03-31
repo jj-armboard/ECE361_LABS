@@ -9,21 +9,24 @@
 #include <arpa/inet.h>
 #include <math.h>
 
-#define NUMBER_OF_USERS 5
+#define NUMBER_OF_USERS MAX_FILE_BUFFER_SIZE / (MAX_USERNAME_PASSWORD_SIZE * 2)
 #define BACKLOG 10 // how many pending connections queue will hold
 #define MAX_CLIENTS 20
 #define MAX_HEADER_UNIT_SIZE 20
+#define MAX_USERNAME_PASSWORD_SIZE 50
 #define MAX_HEADER_BUILDER_SIZE 200
 #define MAX_CONTROL_MESSAGE_SIZE 200
 #define MAX_HEADER_EXTRACTOR_SIZE 200
 #define MAX_NAME 200
 #define MAX_DATA 1000
 #define MAX_BUFFER_SIZE 1200
+#define MAX_FILE_BUFFER_SIZE 2000
 
 #define INVALID_USERNAME -1
 #define INVALID_PASSWORD -2
 #define ALREADY_LOGGED_IN -3
 #define VALID -4
+#define LIST_EMPTY -5
 
 #define LOGIN 0
 #define LO_ACK 1
@@ -40,6 +43,8 @@
 #define QUERY 12
 #define QU_ACK 13
 
+#define FILENAME "Users.txt"
+
 struct message {
    
    unsigned int type;
@@ -50,8 +55,8 @@ struct message {
 
 struct user {
 
-   char* username;
-   char* password;
+   char username[MAX_USERNAME_PASSWORD_SIZE];
+   char password[MAX_USERNAME_PASSWORD_SIZE];
    
    int sockfd;
    int loggedIn;
@@ -63,22 +68,42 @@ struct session {
 
    int active;
    int numberOfUsers;
-   int UserIndexSessionLookup[NUMBER_OF_USERS];
+
+   int userIndexSessionLookup[NUMBER_OF_USERS];
 };
 
+struct listHead {
+
+   struct listNode* head;
+};
+
+struct listNode {
+
+   struct listNode* nextNode;
+   struct listNode* previousNode;
+
+   struct user* userProfile;
+};
+
+struct listHead* createList();
+void insertNode(struct listHead* listHead, char* username, char* password);
+struct user* findUserProfileWithSockfd(struct listHead* listHead, int sockfd);
+struct user* findUserProfileWithUsername(struct listHead* listHead, char* username);
+int validLoginCheck(struct listHead* listHead, char* username, char* password);
+int loginExitsCheck(struct listHead* listHead, char* username, char* password);
+int findListIndexWithSockfd(struct listHead* listHead, int sockfd);
 void leaveSession(int sockfd);
 int findSessionIndexWithSockfd(int sockfd);
 int findSessionIndexWithName(char* sessionName);
 int findInactiveSession();
-int findUserIndexWithSockfd(int sockfd);
-int usernamePasswordCheck(unsigned char* username, unsigned char* password);
 void deconstructPacket(unsigned char* formattedPacket, struct message* clientMessage);
 int formatPacket(unsigned int type, unsigned int size, unsigned char* source, unsigned char* data, unsigned char* formattedPacket);
 
 int noSessionList[NUMBER_OF_USERS];
 
-struct user* listOfUsers[NUMBER_OF_USERS];
 struct session listOfSessions[NUMBER_OF_USERS];
+
+struct listHead* usersList;
 
 int main(int argc, char *argv[]) {
 
@@ -96,6 +121,10 @@ int main(int argc, char *argv[]) {
    int firstIteration = 0;
    int inSessionCount = 0;
    int sessionIndex = 0;
+   int fileSize = 0;
+   int scanUsernamePassword = 1;
+   int usernamePlaceMark = 0;
+   int passwordPlaceMark = 0;
 
    fd_set readerfd;
 
@@ -106,12 +135,16 @@ int main(int argc, char *argv[]) {
    char controlMessage[MAX_CONTROL_MESSAGE_SIZE];
    char packetData[MAX_DATA];
    char queryBuilder[MAX_HEADER_BUILDER_SIZE];
+   char fileBuffer[MAX_FILE_BUFFER_SIZE];
+   char usernameFromFile[MAX_USERNAME_PASSWORD_SIZE];
+   char passwordFromFile[MAX_USERNAME_PASSWORD_SIZE];
 
    struct addrinfo serverInfo;
    struct addrinfo* serverInfoPtr;
    struct sockaddr_storage clientInfo;
    struct message clientMessage;
    struct sockaddr_in addressPortReader;
+   struct listNode* currentNode;
 
    socklen_t addressLength;
 
@@ -121,41 +154,39 @@ int main(int argc, char *argv[]) {
    struct user userGamma;
    struct user userOmega;
 
-   userAlpha.username = "Alpha";
-   userAlpha.password = "password1";
+   FILE* usersFile;
+
+   strcpy(userAlpha.username, "Alpha");
+   strcpy(userAlpha.password, "password1");
    userAlpha.sockfd = -1;
    userAlpha.loggedIn = 0;
 
-   userBeta.username = "Beta";
-   userBeta.password = "password2";
+   strcpy(userBeta.username, "Beta");
+   strcpy(userBeta.password, "password2");
    userBeta.sockfd = -1;
    userBeta.loggedIn = 0;
    
-   userDelta.username = "Delta";
-   userDelta.password = "password3";
+   strcpy(userDelta.username, "Delta");
+   strcpy(userDelta.password, "password3");
    userDelta.sockfd = -1;
    userDelta.loggedIn = 0;
 
-   userGamma.username = "Gamma";
-   userGamma.password = "password4";
+   strcpy(userGamma.username, "Gamma");
+   strcpy(userGamma.password, "password4");
    userGamma.sockfd = -1;
    userGamma.loggedIn = 0;
 
-   userOmega.username = "Omega";
-   userOmega.password = "password5";
+   strcpy(userOmega.username, "Omega");
+   strcpy(userOmega.password, "password5");
    userOmega.sockfd = -1;
    userOmega.loggedIn = 0;
 
-   listOfUsers[0] = &userAlpha;
-   listOfUsers[1] = &userBeta;
-   listOfUsers[2] = &userDelta;
-   listOfUsers[3] = &userGamma;
-   listOfUsers[4] = &userOmega;
+   usersList = createList();
 
    for (int i = 0; i < NUMBER_OF_USERS; i++) {
 
       memset(listOfSessions[i].sessionName, 0, MAX_NAME * sizeof(char));
-      memset(listOfSessions[i].UserIndexSessionLookup, 0, NUMBER_OF_USERS * sizeof(int));
+      memset(listOfSessions[i].userIndexSessionLookup, 0, NUMBER_OF_USERS * sizeof(int));
 
       listOfSessions[i].active = 0;
       listOfSessions[i].numberOfUsers = 0;
@@ -183,7 +214,11 @@ int main(int argc, char *argv[]) {
    addressPortReaderSize = sizeof(addressPortReader);
 
    // Resolves a hostname into an address
-   getaddrinfo(NULL, argv[1], &serverInfo, &serverInfoPtr);
+   if (getaddrinfo(NULL, argv[1], &serverInfo, &serverInfoPtr) != 0) {
+
+      printf("Invalid Port Number: Exiting Program\n");
+      return 0;
+   }
 
    // Create a socket
    masterSockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -194,6 +229,65 @@ int main(int argc, char *argv[]) {
    bind(masterSockfd, serverInfoPtr->ai_addr, serverInfoPtr->ai_addrlen);
 
    listen(masterSockfd, BACKLOG);
+
+   if (access(FILENAME, F_OK) != 0) {
+
+      printf("Users File Does Not Exist: Exiting Program\n");
+      return 0;
+   }
+
+   ////////////////////////////////////////
+
+   usersFile = fopen(FILENAME, "r");
+
+   if (usersFile == NULL) {
+
+      printf("Users File Failed To Open: Exiting Program\n");
+      return 0;
+   }
+
+   fileSize = fread(fileBuffer, 1, MAX_FILE_BUFFER_SIZE, usersFile);
+   fileBuffer[fileSize] = '\0';
+
+   for (int i = 0; i < fileSize; i++) {
+
+      if ((fileBuffer[i] != ':') && (fileBuffer[i] != '\n')) {
+         
+         if (scanUsernamePassword % 3 == 1) {
+
+            usernameFromFile[i - usernamePlaceMark] = fileBuffer[i];
+            usernameFromFile[i - usernamePlaceMark + 1] = '\0';
+         }
+         else if (scanUsernamePassword % 3 == 2) {
+
+            passwordFromFile[i - passwordPlaceMark] = fileBuffer[i];
+            passwordFromFile[i - passwordPlaceMark + 1] = '\0';
+         }
+      }
+
+      if ((fileBuffer[i] == ':') || (fileBuffer[i] == '\n') || (i == fileSize - 1)) {
+
+         scanUsernamePassword += 1;
+
+         if (scanUsernamePassword % 3 == 0) {
+
+            insertNode(usersList, usernameFromFile, passwordFromFile);
+
+            scanUsernamePassword += 1;
+         }
+         
+         if (scanUsernamePassword % 3 == 1) {
+
+            usernamePlaceMark = i + 1;
+         }
+         else if (scanUsernamePassword % 3 == 2) {
+
+            passwordPlaceMark = i + 1;
+         }
+      }
+   }
+
+   ////////////////////////////////////////
 
    printf("Server Listening On Port: %s\n", argv[1]);
 
@@ -258,12 +352,12 @@ int main(int argc, char *argv[]) {
                getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                clientIP = inet_ntoa(addressPortReader.sin_addr);
 
-               printf("User \"%s\" Disconnected With IP: %s\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, clientIP);
+               printf("User \"%s\" Disconnected With IP: %s\n", findUserProfileWithSockfd(usersList, currentSockfd)->username, clientIP);
 
-               noSessionList[findUserIndexWithSockfd(currentSockfd)] = 0;
-               listOfUsers[findUserIndexWithSockfd(currentSockfd)]->loggedIn = 0;
-               listOfSessions[findSessionIndexWithSockfd(currentSockfd)].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 0;
-               listOfUsers[findUserIndexWithSockfd(currentSockfd)]->sockfd = -1;
+               noSessionList[findListIndexWithSockfd(usersList, currentSockfd)] = 0;
+               findUserProfileWithSockfd(usersList, currentSockfd)->loggedIn = 0;
+               listOfSessions[findSessionIndexWithSockfd(currentSockfd)].userIndexSessionLookup[findListIndexWithSockfd(usersList, currentSockfd)] = 0;
+               findUserProfileWithSockfd(usersList, currentSockfd)->sockfd = -1;
 
                close(currentSockfd);
 
@@ -275,7 +369,9 @@ int main(int argc, char *argv[]) {
 
                if (clientMessage.type == LOGIN) {
 
-                  usernamePasswordReturn = usernamePasswordCheck(clientMessage.source, clientMessage.data);
+                  usernamePasswordReturn = validLoginCheck(usersList, clientMessage.source, clientMessage.data);
+
+                  printf("usernamePasswordReturn = %d\n", usernamePasswordReturn);
 
                   if (usernamePasswordReturn == INVALID_USERNAME) {
 
@@ -311,11 +407,11 @@ int main(int argc, char *argv[]) {
                   }
                   else {
 
-                     if (listOfUsers[usernamePasswordReturn]->loggedIn == 0) {
+                     if (findUserProfileWithUsername(usersList, clientMessage.source)->loggedIn == 0) {
 
-                        listOfUsers[usernamePasswordReturn]->loggedIn = 1;
-                        listOfUsers[usernamePasswordReturn]->sockfd = currentSockfd;
-                        noSessionList[findUserIndexWithSockfd(currentSockfd)] = 1;
+                        findUserProfileWithUsername(usersList, clientMessage.source)->loggedIn = 1;
+                        findUserProfileWithUsername(usersList, clientMessage.source)->sockfd = currentSockfd; 
+                        noSessionList[findListIndexWithSockfd(usersList, currentSockfd)] = 1;
 
                         sprintf(controlMessage, "%d", VALID);
                         numByteSent = formatPacket(LO_ACK, strlen(controlMessage), "Server", controlMessage, buffer);
@@ -325,9 +421,9 @@ int main(int argc, char *argv[]) {
                         getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                         clientIP = inet_ntoa(addressPortReader.sin_addr);
 
-                        printf("User \"%s\" Logged In With IP: %s\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, clientIP);
+                        printf("User \"%s\" Logged In With IP: %s\n", clientMessage.source, clientIP);
                      }
-                     else if (listOfUsers[usernamePasswordReturn]->loggedIn == 1) {
+                     else if (findUserProfileWithUsername(usersList, clientMessage.source)->loggedIn == 1) {
 
                         sprintf(controlMessage, "%d", ALREADY_LOGGED_IN);
                         numByteSent = formatPacket(LO_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
@@ -337,7 +433,7 @@ int main(int argc, char *argv[]) {
                         getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                         clientIP = inet_ntoa(addressPortReader.sin_addr);
 
-                        printf("User \"%s\" Already Logged In, Client Disconnected: %s\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, clientIP);
+                        printf("User \"%s\" Already Logged In, Client Disconnected: %s\n", clientMessage.source, clientIP);
 
                         close(currentSockfd);
 
@@ -352,12 +448,12 @@ int main(int argc, char *argv[]) {
                   getpeername(currentSockfd, (struct sockaddr*)&addressPortReader, &addressPortReaderSize);
                   clientIP = inet_ntoa(addressPortReader.sin_addr);
 
-                  printf("Client \"%s\" Logged Out With IP: %s\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, clientIP);
+                  printf("Client \"%s\" Logged Out With IP: %s\n", findUserProfileWithSockfd(usersList, currentSockfd)->username, clientIP);
 
-                  noSessionList[findUserIndexWithSockfd(currentSockfd)] = 0;
-                  listOfUsers[findUserIndexWithSockfd(currentSockfd)]->loggedIn = 0;
-                  listOfSessions[findSessionIndexWithSockfd(currentSockfd)].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 0;
-                  listOfUsers[findUserIndexWithSockfd(currentSockfd)]->sockfd = -1;
+                  noSessionList[findListIndexWithSockfd(usersList, currentSockfd)] = 0;
+                  findUserProfileWithSockfd(usersList, currentSockfd)->loggedIn = 0;
+                  listOfSessions[findSessionIndexWithSockfd(currentSockfd)].userIndexSessionLookup[findListIndexWithSockfd(usersList, currentSockfd)] = 0;
+                  findUserProfileWithSockfd(usersList, currentSockfd)->sockfd = -1;
 
                   close(currentSockfd);
 
@@ -371,11 +467,11 @@ int main(int argc, char *argv[]) {
 
                   if (findSessionWithNameReturn != -1) {
                      
-                     noSessionList[findUserIndexWithSockfd(currentSockfd)] = 2;
+                     noSessionList[findListIndexWithSockfd(usersList, currentSockfd)] = 2;
                      listOfSessions[findSessionWithNameReturn].numberOfUsers += 1;
-                     listOfSessions[findSessionWithNameReturn].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 1;
+                     listOfSessions[findSessionWithNameReturn].userIndexSessionLookup[findListIndexWithSockfd(usersList, currentSockfd)] = 1;
 
-                     printf("User \"%s\" Joined Session \"%s\"\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, listOfSessions[findSessionWithNameReturn].sessionName);
+                     printf("User \"%s\" Joined Session \"%s\"\n", findUserProfileWithSockfd(usersList, currentSockfd)->username, listOfSessions[findSessionWithNameReturn].sessionName);
                   
                      sprintf(controlMessage, "%d", JN_ACK);
                      numByteSent = formatPacket(JN_ACK, strlen(controlMessage), "Server", controlMessage, buffer);
@@ -394,7 +490,7 @@ int main(int argc, char *argv[]) {
                }
                else if (clientMessage.type == LEAVE_SESS) {
                   
-                  printf("User \"%s\" Left Session \"%s\"\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, listOfSessions[findSessionIndexWithSockfd(currentSockfd)].sessionName);
+                  printf("User \"%s\" Left Session \"%s\"\n", findUserProfileWithSockfd(usersList, currentSockfd)->username, listOfSessions[findSessionIndexWithSockfd(currentSockfd)].sessionName);
 
                   leaveSession(currentSockfd);
                }
@@ -412,12 +508,12 @@ int main(int argc, char *argv[]) {
 
                         strcpy(listOfSessions[inactiveSession].sessionName, clientMessage.data);
 
-                        noSessionList[findUserIndexWithSockfd(currentSockfd)] = 2;
+                        noSessionList[findListIndexWithSockfd(usersList, currentSockfd)] = 2;
                         listOfSessions[inactiveSession].active = 1;
                         listOfSessions[inactiveSession].numberOfUsers = 1;
-                        listOfSessions[inactiveSession].UserIndexSessionLookup[findUserIndexWithSockfd(currentSockfd)] = 1;
+                        listOfSessions[inactiveSession].userIndexSessionLookup[findListIndexWithSockfd(usersList, currentSockfd)] = 1;
 
-                        printf("User \"%s\" Created Session \"%s\"\n", listOfUsers[findUserIndexWithSockfd(currentSockfd)]->username, clientMessage.data);
+                        printf("User \"%s\" Created Session \"%s\"\n", findUserProfileWithSockfd(usersList, currentSockfd)->username, clientMessage.data);
 
                         sprintf(controlMessage, "%d", NS_ACK);
                         numByteSent = formatPacket(NS_ACK, strlen(controlMessage), "Server", controlMessage, buffer);
@@ -461,15 +557,17 @@ int main(int argc, char *argv[]) {
                         strcat(packetData, listOfSessions[i].sessionName);
                         strcat(packetData, "|");
 
-                        printf("%s: ", listOfSessions[i].sessionName);
+                        currentNode = usersList->head;
 
-                        for (int j = 0; j < NUMBER_OF_USERS; j++) {
+                        for (int j = 0; currentNode != NULL; j++) {
 
-                           if (listOfSessions[i].UserIndexSessionLookup[j] == 1) {
+                           if (listOfSessions[i].userIndexSessionLookup[j] == 1) {
 
-                              strcat(packetData, listOfUsers[j]->username);
+                              strcat(packetData, currentNode->userProfile->username);
                               strcat(packetData, ",");
                            }
+
+                           currentNode = currentNode->nextNode;
                         }
                         
                         strcat(packetData, "\n");
@@ -478,15 +576,19 @@ int main(int argc, char *argv[]) {
                   
                   inSessionCount = 0;
 
-                  for (int i = 0; i < NUMBER_OF_USERS; i++) {
+                  currentNode = usersList->head;
+
+                  for (int i = 0; currentNode != NULL; i++) {
 
                      if(noSessionList[i] == 1) {
 
-                        strcat(queryBuilder, listOfUsers[i]->username);
+                        strcat(queryBuilder, currentNode->userProfile->username);
                         strcat(queryBuilder, ",");
 
                         inSessionCount += 1;
                      }
+
+                     currentNode = currentNode->nextNode;
                   }
 
                   if (inSessionCount > 0) {
@@ -508,15 +610,19 @@ int main(int argc, char *argv[]) {
 
                   numByteSent = formatPacket(MESSAGE, strlen(clientMessage.data), clientMessage.source, clientMessage.data, buffer);
 
-                  for (int i = 0; i < NUMBER_OF_USERS; i++) {
+                  currentNode = usersList->head;
 
-                     if(listOfSessions[sessionIndex].UserIndexSessionLookup[i] == 1) {
+                  for (int i = 0; currentNode != NULL; i++) {
 
-                        if (currentSockfd != listOfUsers[i]->sockfd) {
+                     if(listOfSessions[sessionIndex].userIndexSessionLookup[i] == 1) {
+
+                        if (currentSockfd != currentNode->userProfile->sockfd) {
                            
-                           write(listOfUsers[i]->sockfd, buffer, numByteSent);
+                           write(currentNode->userProfile->sockfd, buffer, numByteSent);
                         }
                      }
+
+                     currentNode = currentNode->nextNode;
                   }
                }
             }
@@ -527,6 +633,174 @@ int main(int argc, char *argv[]) {
    return 0;
 }
 
+struct listHead* createList() {
+
+   struct listHead* newList = NULL;
+
+   newList = (struct listHead*)malloc(sizeof(struct listHead));
+
+   newList->head = NULL;
+
+   return newList;
+}
+
+void insertNode(struct listHead* listHead, char* username, char* password) {
+
+   struct listNode* newNode = NULL;
+   struct listNode* currentNode = NULL;
+
+   struct user* newUserProfile = NULL;
+
+   newNode = (struct listNode*)malloc(sizeof(struct listNode));
+   newUserProfile = (struct user*)malloc(sizeof(struct user));
+
+   strcpy(newUserProfile->username, username);
+   strcpy(newUserProfile->password, password);
+
+   newUserProfile->sockfd = -1;
+   newUserProfile->loggedIn = 0;
+
+   newNode->userProfile = newUserProfile;
+
+   if (listHead->head == NULL) {
+
+      listHead->head = newNode;
+
+      newNode->nextNode = NULL;
+      newNode->previousNode = NULL;
+
+      return;
+   }
+
+   currentNode = listHead->head;
+
+   while (currentNode->nextNode != NULL) {
+
+      currentNode = currentNode->nextNode;
+   }
+
+   currentNode->nextNode = newNode;
+
+   newNode->nextNode = NULL;
+   newNode->previousNode = currentNode;
+}
+
+struct user* findUserProfileWithSockfd(struct listHead* listHead, int sockfd) {
+
+   struct listNode* currentNode = NULL;
+
+   currentNode = listHead->head;
+
+   while (currentNode != NULL) {
+
+      if (currentNode->userProfile->sockfd == sockfd) {
+
+         return currentNode->userProfile;
+      }
+
+      currentNode = currentNode->nextNode;
+   }
+
+   return NULL;
+}
+
+struct user* findUserProfileWithUsername(struct listHead* listHead, char* username) {
+
+   struct listNode* currentNode = NULL;
+
+   currentNode = listHead->head;
+
+   while (currentNode != NULL) {
+
+      if (strcmp(currentNode->userProfile->username, username) == 0) {
+
+         return currentNode->userProfile;
+      }
+
+      currentNode = currentNode->nextNode;
+   }
+
+   return NULL;
+}
+
+int validLoginCheck(struct listHead* listHead, char* username, char* password) {
+
+   struct listNode* currentNode = NULL;
+
+   if (listHead->head == NULL) {
+
+      return LIST_EMPTY;
+   }
+
+   currentNode = listHead->head;
+   
+   while (strcmp(currentNode->userProfile->username, username) != 0) {
+
+      currentNode = currentNode->nextNode;
+
+      if (currentNode == NULL) {
+
+         return INVALID_USERNAME;
+      }
+   }
+
+   currentNode = listHead->head;
+   
+   while ((strcmp(currentNode->userProfile->username, username) != 0) || (strcmp(currentNode->userProfile->password, password) != 0)) {
+
+      currentNode = currentNode->nextNode;
+
+      if (currentNode == NULL) {
+
+         return INVALID_PASSWORD;
+      }
+   }
+
+   return VALID;
+}
+
+int loginExitsCheck(struct listHead* listHead, char* username, char* password) {
+
+   struct listNode* currentNode = NULL;
+
+   currentNode = listHead->head;
+
+   while (currentNode != NULL) {
+
+      if ((strcmp(currentNode->userProfile->username, username) == 0) && (strcmp(currentNode->userProfile->password, password) == 0)) {
+
+         return 1;
+      }
+
+      currentNode = currentNode->nextNode;
+   }
+
+   return 0;
+}
+
+int findListIndexWithSockfd(struct listHead* listHead, int sockfd) {
+   
+   int index = 0;
+
+   struct listNode* currentNode = NULL;
+
+   currentNode = listHead->head;
+
+   while (currentNode != NULL) {
+
+      if (currentNode->userProfile->sockfd == sockfd) {
+
+         return index;
+      }
+
+      index += 1;
+
+      currentNode = currentNode->nextNode;
+   }
+
+   return index;
+}
+
 void leaveSession(int sockfd) {
 
    int findSessionIndexWithSockfdReturn = 0;
@@ -535,7 +809,7 @@ void leaveSession(int sockfd) {
 
    if (findSessionIndexWithSockfdReturn != -1) {
 
-      listOfSessions[findSessionIndexWithSockfdReturn].UserIndexSessionLookup[findUserIndexWithSockfd(sockfd)] = 0;
+      listOfSessions[findSessionIndexWithSockfdReturn].userIndexSessionLookup[findListIndexWithSockfd(usersList, sockfd)] = 0;
       listOfSessions[findSessionIndexWithSockfdReturn].numberOfUsers -= 1;
 
       if (listOfSessions[findSessionIndexWithSockfdReturn].numberOfUsers == 0) {
@@ -545,18 +819,18 @@ void leaveSession(int sockfd) {
       }
    }
 
-   noSessionList[findUserIndexWithSockfd(sockfd)] = 1;
+   noSessionList[findListIndexWithSockfd(usersList, sockfd)] = 1;
 }
 
 int findSessionIndexWithSockfd(int sockfd) {
 
    int findUserIndexWithSockfdReturn = 0;
 
-   findUserIndexWithSockfdReturn = findUserIndexWithSockfd(sockfd);
+   findUserIndexWithSockfdReturn = findListIndexWithSockfd(usersList, sockfd);
 
    for (int i = 0; i < NUMBER_OF_USERS; i++) {
 
-      if(listOfSessions[i].UserIndexSessionLookup[findUserIndexWithSockfdReturn] == 1) {
+      if(listOfSessions[i].userIndexSessionLookup[findUserIndexWithSockfdReturn] == 1) {
 
          return i;
       }
@@ -589,58 +863,6 @@ int findInactiveSession() {
    }
 
    return -1;
-}
-
-int findUserIndexWithSockfd(int sockfd) {
-
-   for (int i = 0; i < NUMBER_OF_USERS; i++) {
-
-      if (listOfUsers[i]->sockfd == sockfd) {
-
-         return i;
-      }
-   }
-
-   return -1;
-}
-
-int usernamePasswordCheck(unsigned char* username, unsigned char* password) {
-
-   int validUsernameIndex = -1;
-   int validPasswordIndex = -1;
-
-   for (int i = 0; i < NUMBER_OF_USERS; i++) {
-
-      if (strcmp(username, listOfUsers[i]->username) == 0) {
-
-         validUsernameIndex = i;
-         break;
-      }
-   }
-
-   if (validUsernameIndex == -1) {
-
-      return INVALID_USERNAME;
-   }
-
-   for (int i = 0; i < NUMBER_OF_USERS; i++) {
-
-      if (strcmp(password, listOfUsers[i]->password) == 0) {
-
-         if (i == validUsernameIndex) {
-
-            validPasswordIndex = i;
-            break;
-         }
-      }
-   }
-
-   if (validPasswordIndex == -1) {
-
-      return INVALID_PASSWORD;
-   }
-
-   return validPasswordIndex;
 }
 
 void deconstructPacket(unsigned char* formattedPacket, struct message* clientMessage) {

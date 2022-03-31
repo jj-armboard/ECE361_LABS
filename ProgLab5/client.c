@@ -235,6 +235,8 @@ int main() {
 
                   validCommand = 1;
 
+                  inSession = 0;
+
                   sprintf(controlMessage, "%d", EXIT);
                   numByteSent = formatPacket(EXIT, strlen(controlMessage), inputClientID, controlMessage, buffer);
 
