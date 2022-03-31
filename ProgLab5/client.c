@@ -25,6 +25,8 @@
 #define INVALID_PASSWORD -2
 #define ALREADY_LOGGED_IN -3
 #define VALID -4
+#define LIST_EMPTY -5
+#define ACCOUNT_LIMIT_REACHED -6
 
 #define LOGIN 0
 #define LO_ACK 1
@@ -40,6 +42,9 @@
 #define MESSAGE 11
 #define QUERY 12
 #define QU_ACK 13
+#define REGISTER 14
+#define REGISTER_ACK 15
+#define REGISTER_NAK 16
 
 struct message {
    
@@ -113,10 +118,10 @@ int main() {
 
       if (loggedIn == 0) {
          
-         printf("Please Login:\n");
+         printf("Please Login Or Register An Account:\n");
          scanf("%s", commandString);
 
-         while (strcmp(commandString, "/login") != 0) {
+         while ((strcmp(commandString, "/login") != 0) && (strcmp(commandString, "/register") != 0)) {
 
             if (strcmp(commandString, "/quit") == 0) {
 
@@ -145,13 +150,13 @@ int main() {
                
                if (clearCommandCheck == 0) {
                   
-                  printf("Try Entering: /login <Client ID> <Password> <Server-IP> <Server-Port>\n");
+                  printf("Try Entering: /login or /register <Client ID> <Password> <Server-IP> <Server-Port>\n");
                }
                else if (clearCommandCheck == 1) {
 
                   clearCommandCheck = 0;
 
-                  printf("Please Login:\n");
+                  printf("Please Login Or Register An Account:\n");
                }
 
                scanf("%s", commandString);
@@ -178,8 +183,16 @@ int main() {
             return 0;
          }
 
-         numByteSent = formatPacket(LOGIN, strlen(inputPassword), inputClientID, inputPassword, buffer);
-         write(sockfd, buffer, numByteSent);
+         if (strcmp(commandString, "/login") == 0) {
+            
+            numByteSent = formatPacket(LOGIN, strlen(inputPassword), inputClientID, inputPassword, buffer);
+            write(sockfd, buffer, numByteSent);
+         }
+         else if (strcmp(commandString, "/register") == 0) {
+
+            numByteSent = formatPacket(REGISTER, strlen(inputPassword), inputClientID, inputPassword, buffer);
+            write(sockfd, buffer, numByteSent);
+         }
 
          numByteReceived = read(sockfd, buffer, MAX_BUFFER_SIZE);
          deconstructPacket(buffer, &serverMessage);
@@ -204,6 +217,24 @@ int main() {
             else if (atoi(serverMessage.data) == ALREADY_LOGGED_IN) {
 
                printf("Already Logged In:\n");
+            }
+         }
+         else if (serverMessage.type == REGISTER_ACK) {
+
+            printf("Please Enter A Command:\n");
+
+            memset(commandString, 0, MAX_COMMAND_SIZE * sizeof(char));
+            loggedIn = 1;
+         }
+         else if (serverMessage.type == REGISTER_NAK) {
+
+            if (atoi(serverMessage.data) == INVALID_USERNAME) {
+         
+               printf("Username Already In Use:\n");
+            }
+            else if (atoi(serverMessage.data) == ACCOUNT_LIMIT_REACHED) {
+
+               printf("Account Limit Reached:\n");
             }
          }
       }
