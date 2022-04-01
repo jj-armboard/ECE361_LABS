@@ -49,6 +49,9 @@
 #define KICK 17
 #define KICK_ACK 18
 #define KICK_NAK 19
+#define ADMIN 20
+#define ADMIN_ACK 21
+#define ADMIN_NAK 22
 
 struct message {
    
@@ -402,6 +405,38 @@ int main() {
                      printf("This Command Can Only Be Used In A Session:\n");
                   }
                }
+               else if (strcmp(commandString, "/admin") == 0) {
+                  
+                  validCommand = 1;
+
+                  if (inSession == 1) {
+
+                     if (strchr(inputBuffer, ' ') != NULL) {
+
+                        sscanfReturn = sscanf(strchr(inputBuffer, ' '), "%s", targetClientID);
+
+                        if (sscanfReturn != EOF) {
+
+                           strcpy(packetData, targetClientID);
+                           numByteSent = formatPacket(ADMIN, strlen(packetData), inputClientID, packetData, buffer);
+
+                           write(sockfd, buffer, numByteSent);
+                        }
+                        else if (sscanfReturn == EOF) {
+
+                           printf("Invalid Client ID:\n");
+                        }
+                     }
+                     else if (strchr(inputBuffer, ' ') == NULL) {
+                        
+                        printf("Try Entering: /admin <Client ID>\n");
+                     }
+                  }
+                  else if (inSession == 0) {
+
+                     printf("This Command Can Only Be Used In A Session:\n");
+                  }
+               }
                else if (commandString[0] == '/') {
 
                   validCommand = 0;
@@ -495,14 +530,48 @@ int main() {
                   if (strcmp(serverMessage.data, "NOT_ADMIN") == 0) {
 
                      printf("Only The Admin Can Use: /kick\n");
+                     printf("%s: ", inputClientID);
                   }
                   else if (strcmp(serverMessage.data, "USER_DOES_NOT_EXIST") == 0) {
 
                      printf("User \"%s\" Does Not Exist:\n", targetClientID);
+                     printf("%s: ", inputClientID);
                   }
                   else if (strcmp(serverMessage.data, "USER_NOT_IN_SESSION") == 0) {
 
                      printf("User \"%s\" Is Not In Session:\n", targetClientID);
+                     printf("%s: ", inputClientID);
+                  }
+               }
+               else if (serverMessage.type == ADMIN_ACK) {
+
+                  if (strcmp(serverMessage.source, inputClientID) == 0) {
+
+                     printf("User \"%s\" Has Been Made Admin:\n", targetClientID);
+                     printf("%s: ", inputClientID);
+                  }
+                  else if (strcmp(serverMessage.source, inputClientID) != 0) {
+
+                     printf("\rYou Have Been Made Admin Of Session: %s\n", serverMessage.data);
+                     printf("%s: ", inputClientID);
+                  }
+               }
+               else if (serverMessage.type == ADMIN_NAK) {
+
+                  if (strcmp(serverMessage.data, "NOT_ADMIN") == 0) {
+
+                     printf("Only The Admin Can Use: /admin\n");
+                     printf("%s: ", inputClientID);
+                  }
+                  else if (strcmp(serverMessage.data, "USER_DOES_NOT_EXIST") == 0) {
+
+                     printf("User \"%s\" Does Not Exist:\n", targetClientID);
+                     printf("%s: ", inputClientID);
+                  }
+                  else if (strcmp(serverMessage.data, "USER_NOT_IN_SESSION") == 0) {
+
+                     printf("User \"%s\" Is Not In Session:\n", targetClientID);
+                     printf("%s: ", inputClientID);
                   }
                }
                else if (serverMessage.type == QU_ACK) {

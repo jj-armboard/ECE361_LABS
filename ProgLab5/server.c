@@ -50,6 +50,9 @@
 #define KICK 17
 #define KICK_ACK 18
 #define KICK_NAK 19
+#define ADMIN 20
+#define ADMIN_ACK 21
+#define ADMIN_NAK 22
 
 #define FILENAME "Users.txt"
 
@@ -572,6 +575,46 @@ int main(int argc, char *argv[]) {
                      write(currentSockfd, buffer, numByteSent);
                   }
                }
+               else if (clientMessage.type == ADMIN) {
+
+                  if (strcmp(listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].adminName, clientMessage.source) == 0) {
+
+                     if (usernameExitsCheck(listOfUsers, clientMessage.data) == 0) {
+
+                        strcpy(controlMessage, "USER_DOES_NOT_EXIST");
+                        numByteSent = formatPacket(ADMIN_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                        write(currentSockfd, buffer, numByteSent);
+                     }
+                     else if (usernameExitsCheck(listOfUsers, clientMessage.data) == 1) {
+
+                        if (listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].userIndexSessionLookup[findListIndexWithUsername(listOfUsers, clientMessage.data)] == 0) {
+
+                           strcpy(controlMessage, "USER_NOT_IN_SESSION");
+                           numByteSent = formatPacket(ADMIN_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                           write(currentSockfd, buffer, numByteSent);
+                        }
+                        else if (listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].userIndexSessionLookup[findListIndexWithUsername(listOfUsers, clientMessage.data)] == 1) {
+
+                           strcpy(listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].adminName, clientMessage.data);
+
+                           strcpy(controlMessage, listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].sessionName);
+                           numByteSent = formatPacket(ADMIN_ACK, strlen(controlMessage), clientMessage.source, controlMessage, buffer);
+
+                           write(currentSockfd, buffer, numByteSent);
+                           write(findSockfdWithUsername(listOfUsers, clientMessage.data), buffer, numByteSent);
+                        }
+                     }
+                  }
+                  else if (strcmp(listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].adminName, clientMessage.source) != 0) {
+
+                     strcpy(controlMessage, "NOT_ADMIN");
+                     numByteSent = formatPacket(ADMIN_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                     write(currentSockfd, buffer, numByteSent);
+                  }
+               }
                else if (clientMessage.type == QUERY) {
 
                   memset(queryBuilder, 0, MAX_HEADER_BUILDER_SIZE * sizeof(char));
@@ -1000,6 +1043,8 @@ int findListIndexWithUsername(struct listHead* listHead, char* username) {
 
 void leaveSession(struct listHead* listHead, int sockfd) {
 
+   struct listNode* currentNode = NULL;
+
    int findSessionIndexWithSockfdReturn = 0;
 
    findSessionIndexWithSockfdReturn = findSessionIndexWithSockfd(listHead, sockfd);
@@ -1012,7 +1057,28 @@ void leaveSession(struct listHead* listHead, int sockfd) {
       if (listOfSessions[findSessionIndexWithSockfdReturn].numberOfUsers == 0) {
 
          memset(listOfSessions[findSessionIndexWithSockfdReturn].sessionName, 0, MAX_NAME * sizeof(char));
+         memset(listOfSessions[findSessionIndexWithSockfdReturn].adminName, 0, MAX_USERNAME_PASSWORD_SIZE * sizeof(char));
          listOfSessions[findSessionIndexWithSockfdReturn].active = 0;
+      }
+      else if (listOfSessions[findSessionIndexWithSockfdReturn].numberOfUsers > 0) {
+
+         if (strcmp(listOfSessions[findSessionIndexWithSockfdReturn].adminName, findUserProfileWithSockfd(listHead, sockfd)->username) == 0) {
+
+            for (int i = 0; i < NUMBER_OF_USERS; i++) {
+
+               if (listOfSessions[findSessionIndexWithSockfdReturn].userIndexSessionLookup[i] == 1) {
+                  
+                  currentNode = listHead->head;
+
+                  for (int j = 0; j < i; j++) {
+                     
+                     currentNode = currentNode->nextNode;
+                  }
+
+                  strcpy(listOfSessions[findSessionIndexWithSockfdReturn].adminName, currentNode->userProfile->username);
+               }
+            }
+         }
       }
    }
 
