@@ -12,6 +12,7 @@
 #include <math.h>
 
 #define MAX_HEADER_UNIT_SIZE 20
+#define MAX_USERNAME_PASSWORD_SIZE 50
 #define MAX_COMMAND_SIZE 100
 #define MAX_HEADER_BUILDER_SIZE 200
 #define MAX_HEADER_EXTRACTOR_SIZE 200
@@ -45,6 +46,9 @@
 #define REGISTER 14
 #define REGISTER_ACK 15
 #define REGISTER_NAK 16
+#define KICK 17
+#define KICK_ACK 18
+#define KICK_NAK 19
 
 struct message {
    
@@ -86,6 +90,7 @@ int main() {
    char controlMessage[MAX_CONTROL_MESSAGE_SIZE];
    char packetData[MAX_BUFFER_SIZE];
    char sessionID[MAX_NAME];
+   char targetClientID[MAX_USERNAME_PASSWORD_SIZE];
    char inputBuffer[MAX_DATA];
 
    struct addrinfo serverInfo;
@@ -365,6 +370,38 @@ int main() {
                      printf("Please Enter A Command:\n");
                   }
                }
+               else if (strcmp(commandString, "/kick") == 0) {
+
+                  validCommand = 1;
+
+                  if (inSession == 1) {
+
+                     if (strchr(inputBuffer, ' ') != NULL) {
+
+                        sscanfReturn = sscanf(strchr(inputBuffer, ' '), "%s", targetClientID);
+
+                        if (sscanfReturn != EOF) {
+
+                           strcpy(packetData, targetClientID);
+                           numByteSent = formatPacket(KICK, strlen(packetData), inputClientID, packetData, buffer);
+
+                           write(sockfd, buffer, numByteSent);
+                        }
+                        else if (sscanfReturn == EOF) {
+
+                           printf("Invalid Client ID:\n");
+                        }
+                     }
+                     else if (strchr(inputBuffer, ' ') == NULL) {
+                        
+                        printf("Try Entering: /kick <Client ID>\n");
+                     }
+                  }
+                  else if (inSession == 0) {
+
+                     printf("This Command Can Only Be Used In A Session:\n");
+                  }
+               }
                else if (commandString[0] == '/') {
 
                   validCommand = 0;
@@ -436,6 +473,36 @@ int main() {
                   else if (strcmp(serverMessage.data, "SESSION_WITH_SAME_NAME") == 0) {
 
                      printf("A Session With The Same Name Already Exists:\n");
+                  }
+               }
+               else if (serverMessage.type == KICK_ACK) {
+
+                  if (strcmp(serverMessage.source, inputClientID) == 0) {
+
+                     printf("User \"%s\" Has Been Kicked:\n", targetClientID);
+                     printf("%s: ", inputClientID);
+                  }
+                  else if (strcmp(serverMessage.source, inputClientID) != 0) {
+
+                     inSession = 0;
+
+                     printf("\rYou Have Been Kick From Session: %s\n", serverMessage.data);
+                     printf("Please Enter A Command:\n");
+                  }
+               }
+               else if (serverMessage.type == KICK_NAK) {
+
+                  if (strcmp(serverMessage.data, "NOT_ADMIN") == 0) {
+
+                     printf("Only The Admin Can Use: /kick\n");
+                  }
+                  else if (strcmp(serverMessage.data, "USER_DOES_NOT_EXIST") == 0) {
+
+                     printf("User \"%s\" Does Not Exist:\n", targetClientID);
+                  }
+                  else if (strcmp(serverMessage.data, "USER_NOT_IN_SESSION") == 0) {
+
+                     printf("User \"%s\" Is Not In Session:\n", targetClientID);
                   }
                }
                else if (serverMessage.type == QU_ACK) {

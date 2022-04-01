@@ -47,8 +47,11 @@
 #define REGISTER 14
 #define REGISTER_ACK 15
 #define REGISTER_NAK 16
+#define KICK 17
+#define KICK_ACK 18
+#define KICK_NAK 19
 
-#define FILENAME "TEST.txt"
+#define FILENAME "Users.txt"
 
 struct message {
    
@@ -70,6 +73,7 @@ struct user {
 struct session {
 
    char sessionName[MAX_NAME];
+   char adminName[MAX_USERNAME_PASSWORD_SIZE];
 
    int active;
    int numberOfUsers;
@@ -94,11 +98,13 @@ void ctrlCHandler(int signum);
 int loadFileIntoList(struct listHead* listHead);
 struct listHead* createList();
 void insertNode(struct listHead* listHead, char* username, char* password);
+int findSockfdWithUsername(struct listHead* listHead, char* username);
 struct user* findUserProfileWithSockfd(struct listHead* listHead, int sockfd);
 struct user* findUserProfileWithUsername(struct listHead* listHead, char* username);
 int validLoginCheck(struct listHead* listHead, char* username, char* password);
 int usernameExitsCheck(struct listHead* listHead, char* username);
 int findListIndexWithSockfd(struct listHead* listHead, int sockfd);
+int findListIndexWithUsername(struct listHead* listHead, char* username);
 void leaveSession(struct listHead* listHead, int sockfd);
 int findSessionIndexWithSockfd(struct listHead* listHead, int sockfd);
 int findSessionIndexWithName(char* sessionName);
@@ -213,13 +219,7 @@ int main(int argc, char *argv[]) {
       return 0;
    }
 
-   ////////////////////////////////////////
-
    numberOfuserProfiles = loadFileIntoList(listOfUsers);
-
-   printf("numberOfuserProfiles = %d\n", numberOfuserProfiles);
-
-   ////////////////////////////////////////
 
    printf("Server Listening On Port: %s\n", argv[1]);
 
@@ -502,6 +502,8 @@ int main(int argc, char *argv[]) {
                         listOfSessions[inactiveSession].active = 1;
                         listOfSessions[inactiveSession].numberOfUsers = 1;
                         listOfSessions[inactiveSession].userIndexSessionLookup[findListIndexWithSockfd(listOfUsers, currentSockfd)] = 1;
+                        
+                        strcpy(listOfSessions[inactiveSession].adminName, clientMessage.source);
 
                         printf("User \"%s\" Created Session \"%s\"\n", findUserProfileWithSockfd(listOfUsers, currentSockfd)->username, clientMessage.data);
 
@@ -530,6 +532,46 @@ int main(int argc, char *argv[]) {
                      write(currentSockfd, buffer, numByteSent);
                   }
                }
+               else if (clientMessage.type == KICK) {
+
+                  if (strcmp(listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].adminName, clientMessage.source) == 0) {
+
+                     if (usernameExitsCheck(listOfUsers, clientMessage.data) == 0) {
+
+                        strcpy(controlMessage, "USER_DOES_NOT_EXIST");
+                        numByteSent = formatPacket(KICK_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                        write(currentSockfd, buffer, numByteSent);
+                     }
+                     else if (usernameExitsCheck(listOfUsers, clientMessage.data) == 1) {
+
+                        if (listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].userIndexSessionLookup[findListIndexWithUsername(listOfUsers, clientMessage.data)] == 0) {
+
+                           strcpy(controlMessage, "USER_NOT_IN_SESSION");
+                           numByteSent = formatPacket(KICK_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                           write(currentSockfd, buffer, numByteSent);
+                        }
+                        else if (listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].userIndexSessionLookup[findListIndexWithUsername(listOfUsers, clientMessage.data)] == 1) {
+
+                           leaveSession(listOfUsers, findSockfdWithUsername(listOfUsers, clientMessage.data));
+
+                           strcpy(controlMessage, listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].sessionName);
+                           numByteSent = formatPacket(KICK_ACK, strlen(controlMessage), clientMessage.source, controlMessage, buffer);
+
+                           write(currentSockfd, buffer, numByteSent);
+                           write(findSockfdWithUsername(listOfUsers, clientMessage.data), buffer, numByteSent);
+                        }
+                     }
+                  }
+                  else if (strcmp(listOfSessions[findSessionIndexWithSockfd(listOfUsers, currentSockfd)].adminName, clientMessage.source) != 0) {
+
+                     strcpy(controlMessage, "NOT_ADMIN");
+                     numByteSent = formatPacket(KICK_NAK, strlen(controlMessage), "Server", controlMessage, buffer);
+
+                     write(currentSockfd, buffer, numByteSent);
+                  }
+               }
                else if (clientMessage.type == QUERY) {
 
                   memset(queryBuilder, 0, MAX_HEADER_BUILDER_SIZE * sizeof(char));
@@ -552,6 +594,11 @@ int main(int argc, char *argv[]) {
                         for (int j = 0; currentNode != NULL; j++) {
 
                            if (listOfSessions[i].userIndexSessionLookup[j] == 1) {
+
+                              if (strcmp(currentNode->userProfile->username, listOfSessions[i].adminName) == 0) {
+
+                                 strcat(packetData, "(Admin) ");
+                              }
 
                               strcat(packetData, currentNode->userProfile->username);
                               strcat(packetData, ",");
@@ -793,6 +840,25 @@ void insertNode(struct listHead* listHead, char* username, char* password) {
    newNode->previousNode = currentNode;
 }
 
+int findSockfdWithUsername(struct listHead* listHead, char* username) {
+   
+   struct listNode* currentNode = NULL;
+
+   currentNode = listHead->head;
+
+   while (currentNode != NULL) {
+
+      if (strcmp(currentNode->userProfile->username, username) == 0) {
+
+         return currentNode->userProfile->sockfd;
+      }
+
+      currentNode = currentNode->nextNode;
+   }
+
+   return -1;
+}
+
 struct user* findUserProfileWithSockfd(struct listHead* listHead, int sockfd) {
 
    struct listNode* currentNode = NULL;
@@ -906,7 +972,30 @@ int findListIndexWithSockfd(struct listHead* listHead, int sockfd) {
       currentNode = currentNode->nextNode;
    }
 
-   return index;
+   return -1;
+}
+
+int findListIndexWithUsername(struct listHead* listHead, char* username) {
+   
+   int index = 0;
+
+   struct listNode* currentNode = NULL;
+
+   currentNode = listHead->head;
+
+   while (currentNode != NULL) {
+
+      if (strcmp(currentNode->userProfile->username, username) == 0) {
+
+         return index;
+      }
+
+      index += 1;
+
+      currentNode = currentNode->nextNode;
+   }
+
+   return -1;
 }
 
 void leaveSession(struct listHead* listHead, int sockfd) {
